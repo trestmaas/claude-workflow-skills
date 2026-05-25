@@ -9,6 +9,9 @@ Take a project that's been `/project-plan`ned and execute it end-to-end, paralle
 
 ## Preconditions
 
+- **Must NOT be running from inside a worktree.** Check: `pwd` must NOT contain `.claude/worktrees/`. If it does, pause `needs input: /project-start cannot run from inside a worktree — child /start agents inherit "in a worktree" and EnterWorktree refuses, causing branch-flip clobbering between siblings. Exit the worktree (or start a fresh session in the main checkout) and re-run.`
+  - Why: child `/start` subagents call `EnterWorktree` to isolate. `EnterWorktree` refuses if its caller is already in a worktree (the parent's). So children fall back to sharing the parent's checkout and `git checkout -b` collisions corrupt working trees and commits land on wrong branches.
+  - First-run lesson: this caused the THE-247 clobber + THE-246/THE-252 ad-hoc recovery in project #2's first attempt.
 - A `.handoffs/<project-slug>/tickets.yaml` exists. If not: pause `needs input: no handoff bundle for <project>, run /project-plan first`.
 - The Linear project is in `Backlog` or `Planned`. If it's already `In Progress`, ask whether to resume or restart.
 

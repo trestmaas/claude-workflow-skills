@@ -47,8 +47,13 @@ The ticket id (e.g. `THE-219`). Can be passed as argument or asked for if missin
 
 ### 2. Enter an isolated worktree
 
-- `EnterWorktree` with name `<prefix-lower>-<id>-<short-slug>` (e.g. `the-219-outcome-correlation`). Gives a clean checkout off the default branch and isolates from any parallel siblings.
-- All subsequent work happens in this worktree until `/ship` returns merged.
+- Try `EnterWorktree` with name `<prefix-lower>-<id>-<short-slug>` (e.g. `the-219-outcome-correlation`). Gives a clean checkout off the default branch and isolates from any parallel siblings.
+- **Fallback when `EnterWorktree` refuses** (typical reason: parent of this subagent is already in a worktree, so the harness thinks you're isolated even though you're sharing the parent's checkout):
+  - Manually create your own worktree: `git worktree add <repo-root>/.claude/worktrees/<name> -b <branch-name>` where `<repo-root>` resolves via `git rev-parse --show-toplevel` from the parent's repo, NOT the current cwd which may be a worktree.
+  - Operate on the new worktree with absolute paths and `git -C <worktree-path>` for every git command. Do NOT `cd` — your cwd belongs to the parent and other siblings depend on its branch state.
+  - All file operations (Read / Write / Edit) use absolute paths under the new worktree.
+  - The skip of `EnterWorktree`'s normal cleanup also means you must manually `git worktree remove <path>` (or call `ExitWorktree`-equivalent shell cleanup) when `/ship` confirms merge.
+- All subsequent work happens in this worktree (or its absolute path) until `/ship` returns merged.
 
 ### 3. Set Linear to In Progress
 
