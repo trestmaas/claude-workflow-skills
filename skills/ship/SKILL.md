@@ -97,6 +97,7 @@ If push fails (rejected, divergent history, etc.), pause `needs input:` with the
   ```
 
 - Create via `gh pr create --title "..." --body "$(cat <<'EOF' ... EOF)"` (HEREDOC for formatting).
+- **Always queue `gh pr merge <N> --auto --squash` immediately after creating the PR.** This is the auto-merge handoff — GitHub merges when all checks pass, no further `/ship` action required. Retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error (observed across multiple projects; succeeds on immediate retry). If the second attempt also fails, surface the error but continue — the orchestrator will queue auto-merge defensively when it sees the open PR.
 
 ### 5. Set Linear to In Review
 

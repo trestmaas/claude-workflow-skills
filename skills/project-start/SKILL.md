@@ -91,17 +91,17 @@ while ready or running:
 - When notified that a background subagent completes, parse its final message for `result:`, `needs input:`, or `failed:` and act accordingly.
 - Never poll. The harness notifies you when a background subagent finishes.
 
-**Verify every subagent's merge claim via `gh` — don't trust the report alone.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice (per project #2's retro) subagents sometimes return with a review-summary tail instead, and the orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
+**Verify every subagent's merge claim via `gh` — don't trust the report alone.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice (per project #2 + #3 retros) subagents sometimes return with a review-summary tail or stop at PR-open instead of waiting on merge. The orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
 
-1. Extract the branch name (always `westmaas/the-<id>-...` per convention, or pull from Linear ticket's `gitBranchName`).
+1. Extract the branch name (per the configured `branch.format` from `.claude/conventions.yaml`, or pull from Linear ticket's `gitBranchName`).
 2. Run `gh pr list --head <branch> --state all --json number,state,mergedAt --limit 1`. Parse:
    - `state: "MERGED"` (and `mergedAt` populated) → confirmed merged. Mark Done, release dependents.
-   - `state: "OPEN"` → not merged yet. Treat as **paused** with a note: "<TICKET-ID> subagent returned without merge; PR #<N> still open. Check delivery orchestrator status."
+   - `state: "OPEN"` → **belt-and-suspenders auto-merge.** Run `gh pr merge <N> --auto --squash` defensively (retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error). Then wait briefly (~10s) and re-check state. If now MERGED → mark Done. If still OPEN → **pause** with note "<TICKET-ID> subagent returned without merge; PR #<N> still open. Auto-merge queued; check CI."
    - `state: "CLOSED"` (and no `mergedAt`) → closed without merge. Treat as **failed** with the PR's close reason.
    - No PR found → treat as **failed** (subagent didn't even push).
 3. Independently confirm the Linear ticket's status via `mcp__claude_ai_Linear__get_issue`. If Linear says Done but gh says not-merged (or vice versa), surface the inconsistency to the user and pause that ticket — don't release dependents from a contradictory state.
 
-The verification cost is two cheap reads. The cost of trusting an unverified merge claim is dependents getting unblocked into a broken parent — much harder to recover from.
+The verification cost is two cheap reads + one defensive merge call. The cost of trusting an unverified merge claim is dependents getting unblocked into a broken parent — much harder to recover from. Across projects #2 and #3, 5 of 21 subagent returns required this fallback — about 25%. Not optional.
 
 ### 5. Surface progress
 
@@ -129,6 +129,27 @@ When `running` and `ready` are both empty and at least one ticket merged:
 - If any tickets are paused/failed: stop, do **not** mark project complete. Report `result: project-start halted — N merged, M paused/failed: <list>`.
 - If all tickets merged: invoke `/project-retro <project>` to write the summary doc.
 - After retro returns: `mcp__claude_ai_Linear__save_project` → status `Completed`, `completedAt` = now.
+
+### 7a. Surface retro recommendations as a `needs input:` pause
+
+After `/project-retro` writes the doc and the project is marked Completed, **read the retro back via `mcp__claude_ai_Linear__get_document`** and look for the "Recommendations for next time" section.
+
+For each recommendation, draft a one-line proposed patch (which skill file, what change). Then emit a `needs input:` with this format:
+
+```
+needs input: project shipped. Retro at <doc URL>.
+
+N recommendations to apply to the workflow-skills:
+
+1. <recommendation summary> — proposed: <one-line patch description> in <skill file>
+2. ...
+
+Reply "all", "none", a list (e.g. "1, 3"), or any free-text edits.
+```
+
+This is the deliberate notification trigger so the human can decide whether to harden the skills based on real-run signal. The whole loop becomes self-improving: each project run produces both shipped code *and* a concrete proposal for what to change in the orchestrator.
+
+If the retro has no recommendations (clean run, no learnings), skip this step and just report.
 
 ### 8. Report
 
