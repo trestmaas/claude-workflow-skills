@@ -91,6 +91,18 @@ while ready or running:
 - When notified that a background subagent completes, parse its final message for `result:`, `needs input:`, or `failed:` and act accordingly.
 - Never poll. The harness notifies you when a background subagent finishes.
 
+**Verify every subagent's merge claim via `gh` — don't trust the report alone.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice (per project #2's retro) subagents sometimes return with a review-summary tail instead, and the orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
+
+1. Extract the branch name (always `westmaas/the-<id>-...` per convention, or pull from Linear ticket's `gitBranchName`).
+2. Run `gh pr list --head <branch> --state all --json number,state,mergedAt --limit 1`. Parse:
+   - `state: "MERGED"` (and `mergedAt` populated) → confirmed merged. Mark Done, release dependents.
+   - `state: "OPEN"` → not merged yet. Treat as **paused** with a note: "<TICKET-ID> subagent returned without merge; PR #<N> still open. Check delivery orchestrator status."
+   - `state: "CLOSED"` (and no `mergedAt`) → closed without merge. Treat as **failed** with the PR's close reason.
+   - No PR found → treat as **failed** (subagent didn't even push).
+3. Independently confirm the Linear ticket's status via `mcp__claude_ai_Linear__get_issue`. If Linear says Done but gh says not-merged (or vice versa), surface the inconsistency to the user and pause that ticket — don't release dependents from a contradictory state.
+
+The verification cost is two cheap reads. The cost of trusting an unverified merge claim is dependents getting unblocked into a broken parent — much harder to recover from.
+
 ### 5. Surface progress
 
 Each time the state changes (ticket completes, dependents released, new spawns), emit a one-line status:

@@ -32,6 +32,8 @@ Everything this skill outputs is in service of `/project-start` running tickets 
 - Acceptance criteria must be *testable* and *unambiguous*. Vague criteria → divergent parallel agents.
 - Each ticket must declare its **expected file surface** so the orchestrator can auto-sequence tickets that would conflict.
 - Each ticket must declare **dependencies** on other tickets in the same project.
+- **Plumbing files belong on every sibling ticket that modifies them.** When a scaffolding ticket creates a shared file (wizard shell with a `renderStep()` dispatch, a tabbed layout, a router that sibling tickets each add a route to), every sibling that will touch that file must list it in their `files:`. Otherwise the auto-sequencer doesn't know to serialize them and the orchestrator has to do it by hand mid-run. See "Identify shared plumbing" below.
+- **Wiring tickets must reference real surfaces.** If a ticket says "wire X into existing Y," grep for Y at planning time. If it doesn't exist, drop or rescope the ticket. See "Validate wiring tickets" below.
 
 ## Conversation flow
 
@@ -135,6 +137,50 @@ tickets:
 ```
 
 If a project needs a long-form plan doc (large projects, complex data shapes, tier matrices), also write `docs/plans/<slug>.md` and reference it from both the Linear project description and `project.md`.
+
+## Identify shared plumbing
+
+Before finalizing tickets, look at the scope and ask: **does any ticket create a file that siblings will modify?** Typical patterns:
+
+- **Wizards / multi-step flows** — the shell (`OrgWizardShell.tsx`) routes between steps; each step ticket extends the `renderStep()` switch.
+- **Tabbed layouts** — the parent component composes tabs; each tab ticket adds itself.
+- **Routers / dispatchers** — the parent maps keys to handlers; each handler ticket registers itself.
+- **Shared hooks / contexts** — the provider defines the API surface; consumer tickets extend it.
+
+When you spot this: the **shared file goes on every sibling's `files:` list**, not just the scaffolding ticket's. The auto-sequencer reads file overlap as "serialize these" — that's the correct behavior because two siblings can't safely edit the same file in parallel even with merge auto-rebase.
+
+Example from project #2's first run (THE-247 + step tickets):
+
+```yaml
+# Scaffolding ticket creates the shell
+- id: THE-247
+  files:
+    - src/components/orgs/wizard/OrgWizardShell.tsx   # creates
+    - src/components/orgs/wizard/StepBasics.tsx       # placeholder
+    # ...
+
+# Step tickets each ALSO list the shell
+- id: THE-248
+  files:
+    - src/components/orgs/wizard/StepBasics.tsx       # real impl
+    - src/components/orgs/wizard/OrgWizardShell.tsx   # extends renderStep + props
+  depends_on: [THE-247]
+```
+
+This way THE-248/249/250/251 auto-serialize against each other (all touch `OrgWizardShell.tsx`) instead of racing.
+
+## Validate wiring tickets
+
+A "wiring" ticket is one that says "wire X into existing Y" or "integrate X with current Z" — its scope is to connect new code to surfaces that should already exist.
+
+**Before finalizing such a ticket, grep for the named surface.** If it doesn't exist:
+
+- Either **drop the ticket** (no work to do) and document it in the project description's "Out of scope" section.
+- Or **rescope the ticket** to *create* the surface as well, and adjust acceptance criteria accordingly.
+
+Don't ship a wiring ticket on faith. The agent will grep at execution time, find nothing, and silently downgrade the ticket to "shipped the building block" — the wiring never happens. Surface this at plan time, not retro time.
+
+Example: THE-254 was scoped as "wire useInviteAttempt into existing Invite surfaces" but those surfaces don't exist in the codebase. The agent shipped only the hook; the actual wiring is now deferred indefinitely. A planning-time grep would have caught this.
 
 ## Asking-questions discipline
 
