@@ -147,7 +147,15 @@ This step is the safety net for the common drift pattern: `/start` subagent's PR
 
 **7.3 Retro.** Invoke `/project-retro <project>` to write the summary doc.
 
-**7.4 Mark project Completed.** `mcp__claude_ai_Linear__save_project` → status `Completed`, `completedAt` = now.
+**7.4 Mark project Completed — explicit, verified, unmissable.**
+
+This is the most-skipped step in practice (projects #2 and #4 of the Org UX initiative both ran to all-tickets-Done but stayed In Progress in Linear because 7.4 didn't fire). Do not treat it as a side-effect of 7.3. Run it as its own distinct action:
+
+1. Call `mcp__claude_ai_Linear__save_project` with `state: "Completed"`.
+2. **Verify.** Call `mcp__claude_ai_Linear__get_project` with the project id and assert `status.name == "Completed"`. If not, retry the save once; if still not, surface explicitly: `needs input: project save_project succeeded but get_project shows status <X> — Linear may have a workflow-state rule blocking the transition; flip manually and investigate.`
+3. Emit the status line: `[project-start] project <slug> → Completed`.
+
+If the orchestrator skips this step for any reason (early return, exception in retro, mistake), the project state is wrong everywhere downstream (the initiative rollup, dashboards, future `/project-plan` "depends on" lookups). Make the call, then prove it landed.
 
 ### 7a. Surface retro recommendations as a `needs input:` pause
 

@@ -44,6 +44,7 @@ The ticket id (e.g. `THE-219`). Can be passed as argument or asked for if missin
 - `mcp__claude_ai_Linear__get_issue` to pull title, description, acceptance criteria, expected file surface, depends_on.
 - If the ticket is part of a planned project (look for `.handoffs/<project-slug>/tickets.yaml` containing this id), read the yaml entry too — it's the authoritative contract.
 - Cross-check: do Linear and yaml agree on file surface and acceptance? If they diverge, **pause** `needs input: ticket and handoff yaml disagree on <field>`.
+- **Backend-dependency check.** Scan acceptance criteria for endpoint-shaped strings: tRPC procedure names (`viewer.foo.bar`, `organizations.delete`), REST routes (`/api/...`), or service-method calls. For each, grep main for the definition. If any are missing, **pause** `needs input: acceptance implies <endpoint> but it does not exist on main` — listing every missing one. Do NOT stub a "coming soon" toast, do NOT invisibly extend an unrelated router to add the surface yourself. The point of the pause is to let the user rescope the ticket or land the backend in a different ticket first. Project #5's THE-277/THE-279 silently shipped UI pointing at non-existent endpoints because no one checked.
 
 ### 2. Enter an isolated worktree
 
@@ -90,21 +91,35 @@ While implementing, if you hit an acceptance criterion that's **ambiguous** (the
 
 If during implementation you discover a missing file from the declared surface (something you need to touch that wasn't listed), note it in a comment on the ticket via `mcp__claude_ai_Linear__save_comment` and continue. After merge, `/project-retro` will surface drift.
 
+**Comment hygiene.** Source comments are for non-obvious WHY (hidden constraint, subtle invariant, workaround for a specific bug) — not for narrating tradeoffs, decisions, or PR context. That belongs in the PR description. Do NOT add file-header block comments explaining "I chose X over Y because Z" or "this ticket implements...". If a future reader of just this file wouldn't be confused by the absence of the comment, don't write it. Project #5 had three sections (THE-280, THE-283, THE-284) land tradeoff narration in source files; the cleanup belongs in the PR body.
+
 Commit code in logical chunks. Run `test.command` between commits — green before each commit.
 
-### 7. Verify (UI / frontend work only)
+### 7. Deletion guard
+
+If any acceptance criterion mentions deleting / retiring / removing specific files (e.g. "Retire legacy components: `src/foo/Bar.tsx`, `src/foo/Baz.tsx` are deleted"), parse out the paths and assert each is gone:
+
+```bash
+for f in <paths>; do [ -e "$f" ] && { echo "STILL EXISTS: $f"; exit 1; }; done
+```
+
+If any still exist, you have not finished the ticket — go back and delete them, then re-run the gate. Do NOT proceed to `/ship` with declared deletions un-done.
+
+This is a separate, explicit step rather than a side-effect of implementation because deletion criteria are easy to silently skip — the test suite stays green either way. Project #5's THE-287 wired up the admin shell but left all 9 files declared for retire on main; the miss only surfaced post-merge in `/project-retro`.
+
+### 8. Verify (UI / frontend work only)
 
 If the change is UI/frontend, invoke the `verify` skill or otherwise start the dev server and exercise the feature in a browser before declaring it done. Type checking verifies code correctness, not feature correctness.
 
 For pure backend / data work, the test suite is the verification.
 
-### 8. Call /ship
+### 9. Call /ship
 
 Invoke the `/ship` skill. It handles the gate, push, PR, hand-off to delivery, merge, and worktree cleanup.
 
 If `/ship` pauses with `needs input:`, propagate that up — don't try to fix the underlying issue without confirmation.
 
-### 9. Report
+### 10. Report
 
 Final line (after `/ship` returns merged): `result: completed <TICKET-ID> — PR #<N> merged`.
 
