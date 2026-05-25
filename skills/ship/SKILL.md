@@ -123,6 +123,24 @@ If no delivery agent is configured, inline:
 4. Watch `gh pr checks <N> --watch` (or poll every 3 minutes) until green.
 5. `gh pr merge <N> --squash --auto` (if `gh pr merge --auto` is supported on this repo) or `gh pr merge <N> --squash` directly.
 
+### 6a. Block on merge confirmation before returning
+
+**Do not return from `/ship` until the PR is confirmed merged.** This was the most-recurring class of bug across project retros — subagents returning with "Monitor armed, awaiting CI" or a review-summary tail before merge actually completed, then the orchestrator had to do defensive recovery.
+
+After step 6 hands off, poll:
+
+```bash
+gh pr view <N> --json mergedAt,state --jq '.mergedAt'
+```
+
+- Returns a timestamp (non-null) → merged. Continue to step 7.
+- Returns `null` and `state == "OPEN"` → not merged yet. Wait 10s, poll again.
+- Returns `null` and `state == "CLOSED"` → closed without merge. Pause `needs input: PR #<N> closed without merge — investigate.`
+
+Ceiling: ~10 minutes of polling. If not merged by then, pause `needs input: PR #<N> not merged after 10 min — CI may be stuck, or auto-merge isn't firing. Manual intervention required.`
+
+This loop blocks the foreground; that's intentional. The orchestrator's concurrency cap means at most N `/ship` calls are blocked-on-merge at once, which is fine.
+
 ### 7. On merge — mark Linear Done, clean up worktree
 
 - `mcp__claude_ai_Linear__save_issue` → configured `done` status (default `"Done"`).

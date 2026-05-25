@@ -48,11 +48,14 @@ If every ticket is already Done, jump straight to `/project-retro` and mark the 
 
 For each ticket:
 
-- **Explicit edges:** every entry in `depends_on` is a hard edge.
+- **Explicit edges:** every entry in `depends_on` is a hard edge (same-project).
+- **External edges:** every entry in `external_depends_on` is a hard edge against a ticket in *another* Linear project. These behave like `depends_on` but resolve via Linear status (the external ticket must be in a Done-type state). Check via `mcp__claude_ai_Linear__get_issue` once at DAG-build time; cache the result. If any `external_depends_on` ticket is not Done, the dependent ticket starts in the **external-blocked** set, not the ready set — it stays blocked until the external dep moves to Done (the orchestrator re-polls these at each completion-checkpoint, since the external project might be running in parallel and shipping while this one runs).
 - **Implicit edges (auto-sequenced):** if ticket A and ticket B both list overlapping paths in `files` and neither depends on the other, add the implicit edge `B depends_on A` (or vice versa — pick the one with lower ticket-id number for determinism). Log the auto-sequence to the user so they can override.
 - Detect cycles. If a cycle exists, pause `needs input: dependency cycle detected: <cycle>`.
 
-Compute the ready set: tickets with no unresolved dependencies.
+Compute the ready set: tickets with no unresolved dependencies (internal or external).
+
+If the initial ready set is empty AND tickets exist in the external-blocked set, surface this: `needs input: nothing ready to run — N tickets blocked on external deps: <list of {ticket → external dep status}>. Resolve those before resuming.`
 
 ### 3. Flip the project to In Progress
 

@@ -25,6 +25,22 @@ If unset, ask which Linear team to use (`mcp__claude_ai_Linear__list_teams`).
 
 For one-off tickets, skip this and use `/start` directly.
 
+## Probe the codebase before declaring file surfaces
+
+Before any tickets are written, **probe the repo for its actual conventions** — declared paths that don't match reality cause silent drift at execution time. The probe is cheap; do it once at plan start and refer to it while filling `files:` for each ticket.
+
+Run these globs (adapt to language/framework as needed):
+
+- **Server services:** `src/server/services/**` (or equivalent). Note the actual structure — is it `src/server/services/<group>/<thing>.ts` or flat `src/server/services/<thing>.service.ts`? Across projects #2–#4, server tickets drifted on declared paths every time because the planner assumed dir-grouping that didn't exist. Match the existing convention exactly.
+- **Server routers:** `src/server/routers/**` — is there a `viewer` router, an `organizations` router? Procedures land on existing routers when possible.
+- **Migrations system:** check for `drizzle/`, `migrations/`, `prisma/migrations/`, or `db/migrate/`. Use the project's actual directory and filename convention (e.g. Drizzle is `drizzle/<NNNN>_<snake>.sql`, not `migrations/<ts>_<snake>.sql`). Migration-path drift is one of the most common errors.
+- **UI components:** `src/components/**` or `src/app/**` — observe component-file naming (PascalCase vs kebab), test-file colocation pattern (`Foo.test.tsx` next to `Foo.tsx` vs separate `__tests__/`), and any feature-folder shape.
+- **Hooks / contexts:** `src/hooks/**`, `src/contexts/**` — does the project even have these dirs? If not, where do shared hooks land?
+
+When the probe reveals a convention that differs from the typical pattern, **write the actual path in tickets**, not the typical one. Note unusual conventions in the project description's "Background" section so reviewers understand the choices.
+
+If the project doesn't have CLAUDE.md or a clear conventions file, surface the probe results as a brief preamble in `project.md` ("The repo uses flat `*.service.ts` server files; Drizzle migrations at `drizzle/<NNNN>_*.sql`; tests colocated; ...") so the executing subagents can match.
+
 ## Up front: assume parallel execution
 
 Everything this skill outputs is in service of `/project-start` running tickets in parallel via background subagents, with no per-ticket babysitting. That means:
@@ -131,10 +147,15 @@ tickets:
       - src/auth/middleware.ts
       - src/auth/middleware.test.ts
     depends_on: []                   # other ticket ids in this project
+    external_depends_on: []          # ticket ids in OTHER projects (cross-project dep)
+                                     # /project-start checks these are Done before
+                                     # releasing this ticket into ready set
     acceptance:
       - <testable statement>
       - <testable statement>
 ```
+
+**`external_depends_on`** captures cross-project deps. Example: project #4's UI tickets needed project #3's `THE-256` (admin shell scaffolding) before they could render in the right slot. List the foreign ticket id; `/project-start` will check its Linear status and refuse to release this ticket into the ready set until the external dep is Done. Avoids the situation where an `external_depends_on:` ticket starts but finds half-built foundations.
 
 If a project needs a long-form plan doc (large projects, complex data shapes, tier matrices), also write `docs/plans/<slug>.md` and reference it from both the Linear project description and `project.md`.
 
