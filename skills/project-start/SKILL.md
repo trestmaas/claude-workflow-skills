@@ -27,6 +27,23 @@ The project slug, name, or Linear project id. Resolve to a slug via `mcp__claude
 - Validate every ticket has an id (filled in during `/project-plan`). If any are missing, pause `needs input: ticket(s) without Linear id — was /project-plan completed?`.
 - Read the `concurrency` field. Default `3`.
 
+### 1a. Reconcile with Linear (resume support)
+
+The orchestrator may be resuming a project that's partially shipped (e.g. a previous run shipped some tickets, hit a bug, you fixed it, now you re-run). Query Linear status for each ticket via `mcp__claude_ai_Linear__get_issue` and classify:
+
+- **`Done` / `Completed`** → mark as already-merged in local DAG state. Do NOT spawn `/start` for it. Dependents that only blocked on this ticket are immediately releasable.
+- **`In Progress` / `In Review`** → another session (or a previous run that didn't exit cleanly) may still be working it. Treat as **paused** for this run — do NOT spawn `/start` (would collide on branch + PR). Surface to the user: "<TICKET-ID> is <status> in Linear — skipping. If stale, flip it back to Backlog and re-run."
+- **`Backlog` / `Todo`** → normal candidate; eligible for the ready set per the DAG.
+- **`Canceled`** → treat as merged for DAG purposes (dependents released). The ticket was deliberately removed from scope.
+
+Surface a one-line resume summary before continuing:
+
+```
+[project-start] resuming <project-slug> — N done, M in-flight (skipped), K backlog/todo (eligible), P canceled
+```
+
+If every ticket is already Done, jump straight to `/project-retro` and mark the project Completed — there's nothing to spawn.
+
 ### 2. Build the DAG
 
 For each ticket:
