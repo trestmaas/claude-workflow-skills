@@ -122,13 +122,29 @@ When a ticket pauses or fails:
 - Continue running everything else.
 - The user can address paused tickets out-of-band (answer the question, fix the blocker, re-run `/start <ticket>` manually). When that ticket eventually merges, its dependents become ready again — but you may have already returned. Document this: paused tickets need a manual re-trigger of `/project-start <project>` to resume the queue, or a manual `/start <ticket-id>` on the unblocked dependent.
 
-### 7. On all-done
+### 7. On all-done (closeout)
 
-When `running` and `ready` are both empty and at least one ticket merged:
+When `running` and `ready` are both empty and at least one ticket merged, run the closeout in order:
 
-- If any tickets are paused/failed: stop, do **not** mark project complete. Report `result: project-start halted — N merged, M paused/failed: <list>`.
-- If all tickets merged: invoke `/project-retro <project>` to write the summary doc.
-- After retro returns: `mcp__claude_ai_Linear__save_project` → status `Completed`, `completedAt` = now.
+**7.1 Reconcile Linear with reality.** For each ticket in the project:
+
+- Fetch current Linear status via `mcp__claude_ai_Linear__get_issue`.
+- If status is already in a Done-type state (`Done`, `Completed`, `Canceled`), skip.
+- Otherwise: extract the branch name (per `branch.format` or Linear's `gitBranchName`) and run `gh pr list --head <branch> --state all --json number,state,mergedAt --limit 1`.
+  - If a PR exists with `state: "MERGED"`: **update Linear to Done** via `mcp__claude_ai_Linear__save_issue` and post a comment: "Auto-reconciled by `/project-start` closeout — PR #<N> was merged but Linear status was `<prior-status>`. Likely the `/start` subagent's final Linear update missed."
+  - If a PR exists with `state: "OPEN"`: run the defensive `gh pr merge <N> --auto --squash` (with the GraphQL-flake retry). Wait ~10s, re-check. If now MERGED, update Linear to Done as above. If still OPEN, leave as-is — the pause/fail check below will catch it.
+  - If `state: "CLOSED"` (no merge) or no PR: leave as-is.
+
+This step is the safety net for the common drift pattern: `/start` subagent's PR auto-merges via GitHub but its final Linear-status update failed or was skipped. Without this, the orchestrator would falsely classify the ticket as paused and refuse to complete the project.
+
+**7.2 Pause/fail gate.** Re-count tickets after reconciliation:
+
+- If any tickets are still NOT in a Done-type state: stop, do **not** mark project complete. Report `result: project-start halted — N merged, M paused/failed: <list>`.
+- If all tickets are Done: continue.
+
+**7.3 Retro.** Invoke `/project-retro <project>` to write the summary doc.
+
+**7.4 Mark project Completed.** `mcp__claude_ai_Linear__save_project` → status `Completed`, `completedAt` = now.
 
 ### 7a. Surface retro recommendations as a `needs input:` pause
 
