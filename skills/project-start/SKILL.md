@@ -1,0 +1,121 @@
+---
+name: project-start
+description: Execute a planned project hands-off in parallel. Reads `.handoffs/<slug>/tickets.yaml`, builds a DAG from explicit depends_on edges plus auto-sequenced file-surface conflicts, then spawns up to N (default 3) background /start agents — releasing dependents as tickets merge. Pauses individual tickets as needs input without halting others. On all-done, calls /project-retro.
+---
+
+# /project-start
+
+Take a project that's been `/project-plan`ned and execute it end-to-end, parallel, hands-off.
+
+## Preconditions
+
+- A `.handoffs/<project-slug>/tickets.yaml` exists. If not: pause `needs input: no handoff bundle for <project>, run /project-plan first`.
+- The Linear project is in `Backlog` or `Planned`. If it's already `In Progress`, ask whether to resume or restart.
+
+## Input
+
+The project slug, name, or Linear project id. Resolve to a slug via `mcp__claude_ai_Linear__list_projects` + match.
+
+## Steps
+
+### 1. Load the contract
+
+- Read `.handoffs/<slug>/tickets.yaml`.
+- Validate every ticket has an id (filled in during `/project-plan`). If any are missing, pause `needs input: ticket(s) without Linear id — was /project-plan completed?`.
+- Read the `concurrency` field. Default `3`.
+
+### 2. Build the DAG
+
+For each ticket:
+
+- **Explicit edges:** every entry in `depends_on` is a hard edge.
+- **Implicit edges (auto-sequenced):** if ticket A and ticket B both list overlapping paths in `files` and neither depends on the other, add the implicit edge `B depends_on A` (or vice versa — pick the one with lower ticket-id number for determinism). Log the auto-sequence to the user so they can override.
+- Detect cycles. If a cycle exists, pause `needs input: dependency cycle detected: <cycle>`.
+
+Compute the ready set: tickets with no unresolved dependencies.
+
+### 3. Flip the project to In Progress
+
+- `mcp__claude_ai_Linear__save_project` → status `In Progress`, `startedAt` = now.
+
+### 4. Schedule and run
+
+This is the parallel-execution loop. Conceptually:
+
+```
+running = []
+ready = initial ready set
+
+while ready or running:
+  while len(running) < concurrency and ready:
+    ticket = ready.pop()
+    spawn `/start <ticket.id>` as a BACKGROUND subagent
+    running.append(ticket)
+
+  wait for any running subagent to complete (you'll be notified — don't poll)
+
+  for each completed:
+    if result == merged:
+      mark ticket Done in our local state
+      release any dependents whose remaining deps are now empty into `ready`
+    elif result == needs_input:
+      mark ticket Paused — surface the reason to the user inline
+      its dependents stay queued; they will not run until this ticket completes
+    elif result == failed:
+      same as needs_input — pause it, keep moving
+```
+
+**Implementation notes:**
+- Use the `Agent` tool with the `general-purpose` subagent type (or a dedicated agent if available) for each `/start` spawn. Pass `run_in_background: true` so they run concurrently.
+- Each subagent prompt should start with: "Execute `/start <TICKET-ID>` per the skill. Report `result:` on merge, `needs input:` on any block. Do not engage with anything outside this ticket."
+- When notified that a background subagent completes, parse its final message for `result:`, `needs input:`, or `failed:` and act accordingly.
+- Never poll. The harness notifies you when a background subagent finishes.
+
+### 5. Surface progress
+
+Each time the state changes (ticket completes, dependents released, new spawns), emit a one-line status:
+
+```
+[project-start] N done / M in-flight / K ready / P paused — released <TICKET-ID> → <TICKET-ID> started
+```
+
+Keep this terse. The user is hands-off but should be able to glance.
+
+### 6. Handle pauses and failures
+
+When a ticket pauses or fails:
+
+- Do not retry it automatically.
+- Do not start its dependents — they stay queued.
+- Continue running everything else.
+- The user can address paused tickets out-of-band (answer the question, fix the blocker, re-run `/start <ticket>` manually). When that ticket eventually merges, its dependents become ready again — but you may have already returned. Document this: paused tickets need a manual re-trigger of `/project-start <project>` to resume the queue, or a manual `/start <ticket-id>` on the unblocked dependent.
+
+### 7. On all-done
+
+When `running` and `ready` are both empty and at least one ticket merged:
+
+- If any tickets are paused/failed: stop, do **not** mark project complete. Report `result: project-start halted — N merged, M paused/failed: <list>`.
+- If all tickets merged: invoke `/project-retro <project>` to write the summary doc.
+- After retro returns: `mcp__claude_ai_Linear__save_project` → status `Completed`, `completedAt` = now.
+
+### 8. Report
+
+Final line on full success: `result: shipped <project-name> — N tickets merged in <duration>`.
+
+On partial: `result: partial — N merged, M paused/failed (see paused list above)`.
+
+## Concurrency caveats
+
+- Default 3 keeps merge-conflict surface low. Override via `concurrency:` in tickets.yaml when planning known parallel-friendly work; lower it for conflict-prone work (e.g., a refactor touching shared infra).
+- File-surface auto-sequencing is best-effort — it catches *declared* overlap. If two tickets touch the same file but one didn't declare it, you'll only find out at PR/merge time. Surface this in `/project-retro` so future plans get tighter declarations.
+
+## Two projects in parallel
+
+`/project-start` is safe to run twice for different projects in the same session. Each invocation operates on its own `.handoffs/<slug>/tickets.yaml`, spawns its own subagent pool, and has its own concurrency cap. The only shared risk is two tickets in different projects touching the same file — same as regular concurrent development.
+
+## What this skill does NOT do
+
+- Does not write code or interpret acceptance criteria — that's `/start`'s job.
+- Does not edit `tickets.yaml` mid-run. Plan is fixed once execution begins; if you discover the plan was wrong, pause and re-plan.
+- Does not force-merge or skip CI on stuck tickets. Pause and report instead.
+- Does not delete the handoff bundle on completion. Keep it for retro and future reference.

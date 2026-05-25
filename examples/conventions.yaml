@@ -1,0 +1,34 @@
+# Drop this at `.claude/conventions.yaml` in any repo where you want the
+# workflow-skills to use that repo's specifics. All fields are optional —
+# defaults apply when missing (package-manager auto-detection, ticket-prefix
+# inference from recent branches, etc.).
+
+linear:
+  team: thesignup              # Linear team name (used by /project-plan)
+  ticket_prefix: THE           # Ticket id prefix (e.g. THE-219)
+  status:
+    in_progress: "In Progress"
+    in_review: "In Review"
+    done: "Done"
+
+branch:
+  # Variables: {prefix} (THE), {prefix_lower} (the), {id} (numeric), {slug}
+  # Default: "{prefix_lower}-{id}-{slug}"
+  format: "westmaas/the-{id}-{slug}"
+
+# Commands run sequentially as the pre-push gate. Each must pass.
+# Default: auto-detect package manager from lockfile + run available scripts.
+gate:
+  - bun run lint
+  - bun run typecheck
+  - bun run test:run
+  - bun run build
+
+test:
+  command: "bun run test:run"
+  bail: "bun run test:run --bail"
+
+# Subagent that takes over after PR creation. If absent, /ship inlines
+# /review + /security-review + CI watch + merge.
+delivery:
+  agent: code-delivery-orchestrator
