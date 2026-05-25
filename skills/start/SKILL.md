@@ -95,6 +95,19 @@ If during implementation you discover a missing file from the declared surface (
 
 Commit code in logical chunks. Run `test.command` between commits — green before each commit.
 
+### 6b. Composition guard
+
+If any acceptance criterion says a child component is **rendered inside / shown in / mounted in** a parent component (e.g. "`SidebarOrgSwitcher` renders inside `SettingsSidebar` between the Developer band and the footer"), grep the parent file for:
+
+1. An import of the child component.
+2. A JSX usage of the child somewhere in the return tree.
+
+If either is missing, you haven't finished the ticket — add the import + render call, ensure a structural test asserts the child renders under the right conditions, then re-run the gate.
+
+This catches the "components shipped but never composed" class. Project #3 of the Org UX initiative shipped THE-258 (`SidebarOrgSwitcher`) and THE-259 (`SidebarOrgSections`) as separate components — but `SettingsSidebar.tsx` never imported or rendered them. Unit tests passed (each component had its own), types passed (no caller, no error), individual PR reviews looked fine. The bug only surfaced when a user opened the page and saw a half-built sidebar. Fixed in THE-288 after the fact.
+
+Like the deletion guard, this is a separate explicit step rather than a side-effect of implementation, because the failure mode is silent — tests stay green when a parent doesn't compose its declared children.
+
 ### 7. Deletion guard
 
 If any acceptance criterion mentions deleting / retiring / removing specific files (e.g. "Retire legacy components: `src/foo/Bar.tsx`, `src/foo/Baz.tsx` are deleted"), parse out the paths and assert each is gone:

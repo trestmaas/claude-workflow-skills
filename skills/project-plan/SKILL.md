@@ -159,6 +159,24 @@ tickets:
 
 If a project needs a long-form plan doc (large projects, complex data shapes, tier matrices), also write `docs/plans/<slug>.md` and reference it from both the Linear project description and `project.md`.
 
+## Integration ticket for composition-heavy projects
+
+When a project produces multiple component blocks that all mount into one parent (sidebar with sections, dashboard with cards, tab bar with tabs, layout with slot children), the per-block tickets are not enough on their own — each block can ship to disk without ever being composed into the parent.
+
+This is the "components shipped but never composed" failure mode. Post-Org-UX-initiative, the admin shell sidebar shipped THE-258 (org switcher) and THE-259 (role-gated bottom band) as separate components with correct internal logic, but `SettingsSidebar.tsx` never imported or rendered them. Tests passed (each component had its own unit tests), types passed (props matched), individual PR reviews looked fine. The gap only surfaced when a user opened the page and saw nothing.
+
+**Add an explicit integration ticket** that:
+
+- Sequences AFTER all the component-block tickets it integrates (declared `depends_on`).
+- Lists the parent file in its `files:` (e.g. `SettingsSidebar.tsx`).
+- Acceptance criteria assert composition concretely:
+  - "`<ChildA />` is imported in `Parent.tsx` and rendered between `<Foo>` and `<Bar>`."
+  - "`<ChildB />` is rendered after `<ChildA>` with the right props threaded through."
+  - "Structural test in `Parent.test.tsx` asserts every expected child renders under the conditions documented by each child's own gating logic."
+  - "Manual smoke check (or e2e): visit the live route and confirm each block appears in the right state."
+
+The integration ticket is small but essential. It's also a natural place for a `verify` skill invocation since these bugs are visible only at the rendered-page level, not the code level.
+
 ## Identify shared plumbing
 
 Before finalizing tickets, look at the scope and ask: **does any ticket create a file that siblings will modify?** Typical patterns:
@@ -169,6 +187,14 @@ Before finalizing tickets, look at the scope and ask: **does any ticket create a
 - **Shared hooks / contexts** — the provider defines the API surface; consumer tickets extend it.
 
 When you spot this: the **shared file goes on every sibling's `files:` list**, not just the scaffolding ticket's. The auto-sequencer reads file overlap as "serialize these" — that's the correct behavior because two siblings can't safely edit the same file in parallel even with merge auto-rebase.
+
+### Pre-declare shared utilities, not just plumbing
+
+A separate but related case: **multiple sibling tickets each need the same low-level chrome** — card styles, list-row layouts, status-pill tokens, empty-state shells. These don't fit "scaffolding + step" because no single ticket creates them; each sibling independently reaches for the same shape and (without coordination) re-invents it with slightly different APIs.
+
+When the scope contains several visually-cousin tickets (e.g. multiple "Section X re-skin" tickets, multiple "Card Y" tickets), name the shared utility files explicitly in the project description and add them to one ticket's `files:` as the canonical owner. Siblings reference the utility by path in their acceptance criteria ("uses `src/components/settings/org/cards/style.ts` for card chrome") so subagents reach for the existing file instead of independently creating `cards/style.ts` in their own subtree.
+
+Project #5: THE-278 (Billing) and THE-281 (Dev Hub Overview) each independently invented a `cards/style.ts` in their respective subtrees — different parent paths so no collision, but the divergent shapes are technical debt waiting to be reconciled. A planning-time call-out would have prevented it.
 
 Example from project #2's first run (THE-247 + step tickets):
 
