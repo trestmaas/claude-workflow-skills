@@ -7,6 +7,8 @@ Five Claude Code skills that take you from "idea" to "merged code" with the huma
                   (parallel, hands-off)            (one ticket)    (when project closes)
 ```
 
+> **Requires the matt-pocock skills.** `/project-plan`, `/start`, and `/ship` delegate their thinking to `/grilling`, `/domain-modeling`, `/tdd`, and `/code-review` rather than duplicating it. Install those alongside this set (run `/setup-matt-pocock-skills`); without them, those `/skill` references dangle.
+
 ## What each skill does
 
 | Skill | One-liner |
