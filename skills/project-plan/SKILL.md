@@ -53,6 +53,8 @@ Everything this skill outputs is in service of `/project-start` running tickets 
 
 ## Conversation flow
 
+Run the clarify step as a `/grilling` interview, not a flat questionnaire — the 7 questions below are its agenda, not its ceiling. Grilling pushes on vague answers, surfaces the assumption behind each one, and won't let a fuzzy boundary survive; that rigor is exactly what parallel execution needs (vague criteria → divergent agents). Use the questions to make sure grilling covers the planning-specific ground (cardinality, phasing, DAG), then fold what it extracts into the artifacts below.
+
 Ask these one or two at a time, not all at once. After each answer, write the answer back in your own words and ask the next.
 
 1. **What are we building and why now?** (frames the Why / Background)
@@ -62,6 +64,10 @@ Ask these one or two at a time, not all at once. After each answer, write the an
 5. **Rough cardinality?** small (~5 tickets), medium (~12), large (20+).
 6. **Phased or flat?** — phased means a milestone gate matters (e.g., "Phase 0 — Foundations" must complete before Phase 1). Flat means tickets can fire in any order subject to per-ticket deps. Default to flat unless you hear a clear sequencing reason.
 7. **Follow-up to a prior project?** — if yes, fetch the parent via `mcp__claude_ai_Linear__get_project` and thread its context (PRs merged, deferred work) into the new Why.
+
+## Pin the vocabulary before writing tickets
+
+The interview will surface domain terms — some fuzzy, some overloaded (one word doing three jobs). Before writing acceptance criteria, run `/domain-modeling` to sharpen those terms and record them in `CONTEXT.md` (create it if absent). Then **write ticket titles and acceptance criteria in that pinned vocabulary**, and note in `project.md` that executing subagents should read `CONTEXT.md` for the glossary. Consistent language across tickets is what keeps N parallel agents from each naming the same concept differently — the vocabulary equivalent of the shared-plumbing rule below.
 
 ## Output: three artifacts
 

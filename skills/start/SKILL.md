@@ -70,7 +70,7 @@ git checkout -b <branch-name>
 
 ### 5. Write failing tests against the acceptance criteria
 
-This is the tests-first step.
+This is the tests-first step. Drive it with `/tdd` — it's the reference for what a good test is (behavior through public interfaces, reads like a spec, survives refactors), where the **seam** goes (prefer the highest existing seam; the spec already sketched them), and the red→green discipline below. If `CONTEXT.md` exists, read it first so test names and interface vocabulary match the project's pinned glossary.
 
 For each acceptance criterion:
 - Identify the test file from the expected file surface (or infer from project test conventions — find the closest sibling test file to the source it's exercising).

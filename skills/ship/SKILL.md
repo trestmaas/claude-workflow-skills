@@ -30,7 +30,7 @@ gate:                                 # commands run in order; each must pass
 
 delivery:
   agent: code-delivery-orchestrator   # subagent_type to spawn after PR creation
-# Default: skill inlines /review + /security-review then watches `gh pr checks` until green and merges.
+# Default: skill inlines /code-review (two-axis) + /security-review then watches `gh pr checks` until green and merges.
 ```
 
 If no `.claude/conventions.yaml` exists, infer everything. Surface what you inferred in your first status message ("inferred gate: pnpm run lint, pnpm run typecheck, pnpm run build").
@@ -111,13 +111,13 @@ If `delivery.agent` is configured, spawn that subagent with a prompt like:
 
 ```
 PR #<N> on branch <branch-name> is ready for delivery. Linear ticket <TICKET-ID> is In Review.
-Run /review and /security-review, then watch CI to green and merge (squash). On merge, return control.
+Run /code-review against the PR base branch (matt's two-axis Standards + Spec skill, NOT the built-in /review) and /security-review, then watch CI to green and merge (squash). On merge, return control.
 ```
 
 Run in the **foreground** so `/ship` blocks until merged.
 
 If no delivery agent is configured, inline:
-1. Run `/review`.
+1. Run `/code-review` against the PR's base branch as the fixed point — its two axes (Standards: does the diff follow this repo's documented standards? Spec: does it faithfully implement the ticket?) are the right lens for a single-ticket PR, and its parallel sub-agents keep the two reviews from polluting each other's context. This is matt's `/code-review` skill, not the built-in `/review`.
 2. Run `/security-review`.
 3. Address any high-confidence findings or pause `needs input:` with them.
 4. Watch `gh pr checks <N> --watch` (or poll every 3 minutes) until green.
