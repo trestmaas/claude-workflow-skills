@@ -134,7 +134,14 @@ If `/ship` pauses with `needs input:`, propagate that up — don't try to fix th
 
 ### 10. Report
 
-Final line (after `/ship` returns merged): `result: completed <TICKET-ID> — PR #<N> merged`.
+**You have exactly two ways to end. There is no third.**
+
+1. `result: completed <TICKET-ID> — PR #<N> merged` — only after you have **verified the merge yourself** with `gh pr view <N> --json state,mergedAt` and seen `state: "MERGED"`. Not because `/ship` said so. Not because a delivery agent said so. Because you looked.
+2. `needs input: <what is blocking>` — anything else.
+
+**"Awaiting merge" is not an ending.** On the multi-calendar project, **5 of 7** `/start` agents returned with some variant of *"Monitor armed, waiting on CI"* / *"handed off to the delivery agent, awaiting its report"* — no `result:`, no `needs input:`, just a status update. Every one forced the orchestrator to re-derive the PR number, poll `gh` itself, and re-drive the ticket. The work was fine; the *ending* was the defect, and it cost a round-trip per ticket.
+
+If CI is still running, **keep waiting** — poll `gh pr view <N> --json state` until it leaves `OPEN`, then report. Blocking is correct behavior; a status-update return is not. If you genuinely cannot wait (auto-merge disabled by a human, CI red, delivery agent dead), that is a `needs input:` with the specific reason — not a shrug.
 
 If invoked by `/project-start`, also signal the parent with the ticket id and final state.
 

@@ -9,9 +9,10 @@ Take a project that's been `/project-plan`ned and execute it end-to-end, paralle
 
 ## Preconditions
 
-- **Must NOT be running from inside a worktree.** Check: `pwd` must NOT contain `.claude/worktrees/`. If it does, pause `needs input: /project-start cannot run from inside a worktree — child /start agents inherit "in a worktree" and EnterWorktree refuses, causing branch-flip clobbering between siblings. Exit the worktree (or start a fresh session in the main checkout) and re-run.`
-  - Why: child `/start` subagents call `EnterWorktree` to isolate. `EnterWorktree` refuses if its caller is already in a worktree (the parent's). So children fall back to sharing the parent's checkout and `git checkout -b` collisions corrupt working trees and commits land on wrong branches.
-  - First-run lesson: this caused the THE-247 clobber + THE-246/THE-252 ad-hoc recovery in project #2's first attempt.
+- **Spawn every child with `isolation: "worktree"`.** This is the single most important line in the skill. Pass `isolation: "worktree"` on every `Agent` call. The child is then already in its own harness-provided worktree — its `/start` prompt must tell it **not** to call `EnterWorktree`, and just to work in its cwd.
+  - Why, and read this before "fixing" it: children **cannot** self-isolate. `EnterWorktree` refuses from a subagent with a cwd override ("it would mutate the parent session's process-wide working directory"), and the manual `git worktree add` fallback gets its first `Write` **rejected** by the bg-isolation guard, which is not path-scoped — it blocks the child's writes wholesale whenever the *parent* session is sitting on the shared checkout. Both remedies the guard names (`isolation: "worktree"`, or the parent isolating) are things only the **caller** can do.
+  - The old advice here — "must NOT run from inside a worktree, so children can self-isolate" — was **exactly backwards** and cost two full agent lifecycles on the multi-calendar project before it was diagnosed. Exiting the worktree is what *causes* the children's writes to be blocked. Do not restore it.
+  - The `pwd`-not-in-`.claude/worktrees/` check still holds, but for a different reason: `/project-start` should orchestrate from the main checkout so `.handoffs/` and `main` resolve normally. If `main` is checked out in another worktree, don't switch the user's branch — read the bundle from `origin/main` with `git show origin/main:.handoffs/<slug>/tickets.yaml`. Children branch from `origin/main` regardless.
 - A `.handoffs/<project-slug>/tickets.yaml` exists. If not: pause `needs input: no handoff bundle for <project>, run /project-plan first`.
 - The Linear project is in `Backlog` or `Planned`. If it's already `In Progress`, ask whether to resume or restart.
 
@@ -43,6 +44,22 @@ Surface a one-line resume summary before continuing:
 ```
 
 If every ticket is already Done, jump straight to `/project-retro` and mark the project Completed — there's nothing to spawn.
+
+### 1b. Refuse to spawn tickets carrying unresolved acceptance criteria
+
+Scan each eligible ticket's acceptance criteria — in `tickets.yaml` **and** on the Linear ticket — for unresolved-decision markers: `OPEN`, `TBD`, `needs a call`, `decide before build`, `do not guess`, `RESOLVE FIRST`.
+
+A ticket carrying one of these **will** pause the instant its `/start` agent reads it. Spawning it burns a full agent lifecycle, a worktree, and a human round-trip to learn what you already knew at DAG-build time.
+
+Surface them all up front instead, and let the human clear them in one pass:
+
+```
+needs input: N ticket(s) have unresolved acceptance criteria — resolve before I spawn them:
+  - <TICKET-ID>: <the open question>
+  - <TICKET-ID>: <the open question>
+```
+
+Evidence from the Public org events catalog run: SIGN-340 and SIGN-342 each paused mid-flight on an unresolvable criterion. SIGN-344 *also* carried an open question — but it was traced and resolved **before** spawning, and it shipped without pausing. Same class of ticket, two very different costs. Resolve first, spawn second.
 
 ### 2. Build the DAG
 

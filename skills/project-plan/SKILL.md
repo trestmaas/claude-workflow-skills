@@ -35,7 +35,9 @@ Run these globs (adapt to language/framework as needed):
 - **Server routers:** `src/server/routers/**` — is there a `viewer` router, an `organizations` router? Procedures land on existing routers when possible.
 - **Migrations system:** check for `drizzle/`, `migrations/`, `prisma/migrations/`, or `db/migrate/`. Use the project's actual directory and filename convention (e.g. Drizzle is `drizzle/<NNNN>_<snake>.sql`, not `migrations/<ts>_<snake>.sql`). Migration-path drift is one of the most common errors.
 - **UI components:** `src/components/**` or `src/app/**` — observe component-file naming (PascalCase vs kebab), test-file colocation pattern (`Foo.test.tsx` next to `Foo.tsx` vs separate `__tests__/`), and any feature-folder shape.
+- **Test-file naming — probe the RUNNER's globs, not just where tests live.** Read the test scripts in `package.json` and the runner configs (`vitest.config.*`, `playwright.config.*`, `bunfig.toml`) and note **which glob picks up which directory**. A repo can have two runners splitting the same tree by filename suffix. On the multi-calendar project two tickets drifted because `test:bun` only globs `*.bun.test.ts` in `src/lib/calendar/` and `src/components/**` — a plainly-named `foo.test.ts` there would have silently fallen through to vitest and run under the wrong environment. The plan declared `googleEvents.test.ts`; the real file had to be `googleEvents.bun.test.ts`. Looking at *where* tests live told us nothing; only the runner's glob did. Declare the filename the runner will actually pick up.
 - **Hooks / contexts:** `src/hooks/**`, `src/contexts/**` — does the project even have these dirs? If not, where do shared hooks land?
+- **Route gating (layouts / middleware):** for any route you're adding — and *especially* any route meant to be **public** — enumerate what already **wraps** it: `layout.tsx` files up the segment tree, `middleware.ts` matchers, parent-level session/membership checks. A file surface that lists only what you'll *write* misses what will *wrap* it. On the Public org events catalog project, SIGN-341's "page is NOT member-gated" AC was silently unsatisfiable because `/o/[slug]/layout.tsx` enforced auth + org membership across the whole segment — and that file appeared in **no ticket's declared file surface**. The agent only found it by tracing at build time; a planning-time probe would have caught it.
 
 When the probe reveals a convention that differs from the typical pattern, **write the actual path in tickets**, not the typical one. Note unusual conventions in the project description's "Background" section so reviewers understand the choices.
 
@@ -234,6 +236,38 @@ A "wiring" ticket is one that says "wire X into existing Y" or "integrate X with
 Don't ship a wiring ticket on faith. The agent will grep at execution time, find nothing, and silently downgrade the ticket to "shipped the building block" — the wiring never happens. Surface this at plan time, not retro time.
 
 Example: THE-254 was scoped as "wire useInviteAttempt into existing Invite surfaces" but those surfaces don't exist in the codebase. The agent shipped only the hook; the actual wiring is now deferred indefinitely. A planning-time grep would have caught this.
+
+## Validate acceptance criteria against the DAG
+
+Two failure modes, both hit on the Public org events catalog project. Each cost a full pause and a human round-trip mid-run, and **both were plan-authoring bugs, not agent failures** — the agents correctly refused to stub or guess.
+
+**1. An AC that asserts code a *later* ticket produces.**
+
+SIGN-340's acceptance said *"with the flag OFF, `listPublicForOrg` throws NOT_FOUND."* But `listPublicForOrg` was SIGN-339's deliverable, and SIGN-339 `depends_on` SIGN-340 — so the endpoint could not exist at SIGN-340's build time. The AC was unsatisfiable by construction.
+
+> **Check every acceptance criterion:** does the code it asserts either (a) already exist on the base branch, or (b) get produced by a ticket this one `depends_on`? If neither, the AC is filed on the wrong ticket — **move it to the ticket that owns the thing being asserted.** (Here: the gate assertion belonged on SIGN-339, which already carried an equivalent criterion.)
+
+**2. A UI affordance with no producing ticket.**
+
+SIGN-342's card had to render *"N of M spots left"* — but the query feeding the page returned `maxParticipants` (M) and no signup count (N), and **no ticket in the plan ever produced N**. Building the card anyway would have shipped a decorative affordance pointing at data that doesn't exist — the same "UI shipped against data that isn't there" class as the composition failure above.
+
+> **Check every UI ticket:** enumerate the concrete fields its ACs require, and confirm some dependency's AC actually *returns* them. "Shows X" is only testable if a ticket produces X. If nothing does, either add it to the producing ticket's AC or widen this ticket's scope explicitly at plan time — don't discover it at build time.
+
+**3. A row nobody writes.**
+
+The two checks above ask *"who produces this field?"* Neither asks *"who creates this row?"* — and a plan can pass both while shipping a table nothing ever inserts into.
+
+The multi-calendar project planned a `calendar_connections` table, a ticket to create the schema, and four tickets to read from it. **No ticket owned writing a row.** The gap was invisible to every existing check: the schema ticket produced the table, the service ticket produced the queries, the UI tickets consumed real fields from real endpoints. Everything was "produced" by something. But the OAuth flow returns via a *redirect*, so there was no obvious moment where a row got written, and nobody asked. SIGN-347's agent discovered it mid-build and invented a lazy reconcile-on-read (`syncConnections`) to close it — a **load-bearing design decision, made under time pressure, by an agent, because the planner never asked the question.** It happened to be a good decision. That was luck.
+
+> **For every table or persisted entity the plan introduces, walk its full lifecycle and name the owning ticket for each step: who CREATES a row, who UPDATES it, who DELETES it.** If any step has no owner, you have found a hole — fill it at plan time. Pay special attention to rows created as a side-effect of a flow you don't control (an OAuth redirect, a webhook, a third-party callback): those are exactly the ones with no natural home, which is why they end up with none.
+
+## Be careful when an acceptance criterion mandates literal copy
+
+Quoting exact user-facing strings in ACs is good — it makes them testable, and it stops N parallel agents each inventing their own wording. But a quoted string is not just copy: it silently imports **a format, a convention, and a set of assumptions** into the ticket, and those can contradict another criterion in the same plan without anyone noticing.
+
+Multi-calendar shipped an unintended visual regression this way. SIGN-349's AC specified a degraded count row reading `11:15a–12p · 2 events` — a casual 12-hour format. The grid's existing time format was `09:00–10:00`. **The same plan also demanded that a single-connection user see "zero visual change."** Both criteria were reasonable in isolation and jointly unsatisfiable: once the count row is mandated, the agent must either run two time formats side-by-side in one rail (worse) or convert every block — which changes what existing users see. It chose correctly and flagged it, but the contradiction was authored into the plan, not introduced by the build.
+
+> **When you quote a literal string in an AC, grep the codebase for how that thing is currently rendered.** Dates, times, currency, pluralization, capitalization, truncation. If your string implies a different convention than what ships today, you have either (a) accidentally mandated a migration, or (b) written a criterion that contradicts a "no visual change" / "preserve existing behavior" criterion elsewhere in the plan. Decide which, deliberately, at plan time.
 
 ## Asking-questions discipline
 
