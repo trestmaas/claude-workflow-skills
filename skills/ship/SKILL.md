@@ -112,6 +112,7 @@ If `delivery.agent` is configured, spawn that subagent with a prompt like:
 ```
 PR #<N> on branch <branch-name> is ready for delivery. Linear ticket <TICKET-ID> is In Review.
 Run /code-review against the PR base branch (matt's two-axis Standards + Spec skill, NOT the built-in /review) and /security-review, then watch CI to green and merge (squash). On merge, return control.
+Before trusting either review, CONFIRM IT TARGETED THIS PR'S DIFF — see "Assert the review targeted the right diff" below.
 ```
 
 Run in the **foreground** so `/ship` blocks until merged.
@@ -119,6 +120,34 @@ Run in the **foreground** so `/ship` blocks until merged.
 If no delivery agent is configured, inline:
 1. Run `/code-review` against the PR's base branch as the fixed point — its two axes (Standards: does the diff follow this repo's documented standards? Spec: does it faithfully implement the ticket?) are the right lens for a single-ticket PR, and its parallel sub-agents keep the two reviews from polluting each other's context. This is matt's `/code-review` skill, not the built-in `/review`.
 2. Run `/security-review`.
+
+### 6b. Assert the reviews actually ran
+
+**Before asking whether a review targeted the right diff, confirm it produced output at all.** A skipped review and a passed review look identical in a delivery agent's summary — both end with the PR merging and nobody objecting.
+
+On the multi-calendar project, PR #502's delivery agent returned **twice** without producing `/code-review` or `/security-review` output, reported delivery as complete, and the PR merged with **zero** review coverage. It was the PR that introduced the first user-controlled `calendarId` and `connectionId` — the exact diff most needing a security pass. Nothing failed. Nothing was flagged. The reviews simply never happened, and the summary read the same as if they had.
+
+This matters because reviews on that project were not a formality: across four PRs they caught **six real bugs that fully green test suites missed**, including an account-takeover race (`signIn.social` chosen off an in-flight query result) and a total-failure condition that could never fire, silently rendering an empty grid over a calendar the app could not read.
+
+So, before proceeding:
+
+1. **Point at the artifact.** Each review must have produced findings — including an explicit "no findings" verdict with the confidence bar stated. "The delivery agent said it ran" is not evidence.
+2. If either review produced **no output**, it did **not** run. Re-run it yourself. Do not merge on the assumption that silence means clean.
+3. If you cannot obtain review output, treat coverage as **not done**, say so explicitly in your report, and pause `needs input:` rather than merging a PR whose review status you cannot state.
+
+Never let "no findings reported" and "no review performed" collapse into the same sentence.
+
+### 6c. Assert the review targeted the right diff
+
+**`/security-review` and `/code-review` resolve "the current branch" from the working directory — which in a multi-agent or worktree setup is not necessarily your PR's branch.**
+
+On the Public org events catalog run (SIGN-344), `/security-review` silently reviewed `westmaas/agent-skills-setup` — an unrelated docs-only branch that the *main checkout* happened to be sitting on — instead of PR #492's diff. It **exited cleanly and produced a confident, entirely irrelevant result.** A security review that silently targets the wrong diff is worse than no security review: it manufactures false assurance. (The `security-guidance` plugin's own README warns its diff review is unreliable in "multi-agent / shared-worktree setups where another agent can move HEAD between a worker's turns.")
+
+Before accepting any review output:
+
+1. Confirm the review's reported target matches this PR. Establish ground truth with `git -C <worktree> rev-parse --abbrev-ref HEAD` and `gh pr view <N> --json headRefName`.
+2. If the review names a different branch — or names no branch at all — **discard its output** and re-run it explicitly scoped to the PR's diff (e.g. against `origin/<base>...<pr-branch>`, or from inside the PR's worktree).
+3. If you cannot establish what a review actually looked at, treat that ticket's review coverage as **not done** and say so in your report. Never report "security review passed" on an unverified target.
 3. Address any high-confidence findings or pause `needs input:` with them.
 4. Watch `gh pr checks <N> --watch` (or poll every 3 minutes) until green.
 5. `gh pr merge <N> --squash --auto` (if `gh pr merge --auto` is supported on this repo) or `gh pr merge <N> --squash` directly.
