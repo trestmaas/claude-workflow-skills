@@ -39,6 +39,7 @@ branch:
   - `completedAt - startedAt` per ticket.
   - **Reopens:** count of status transitions from a Done-type state back to a non-Done state. Indicates the agent shipped something that needed revisiting.
   - **Comment volume:** number of comments on the ticket. High comment volume on a hands-off ticket signals that the human had to intervene mid-flight.
+- **Manual tasks:** open issues labelled `manual` created between the project's `startedAt` and `completedAt`. These are the human-only prerequisites the project uncovered; any still open means some of what shipped may not be live. Worth a retro line even when the code all merged clean.
 
 ### From git + gh
 
@@ -97,6 +98,10 @@ Document structure:
 ## Tickets that needed intervention
 
 <for each paused/failed ticket: id, reason, how it was resolved>
+
+## Manual tasks this project left open
+
+<for each still-open manual task filed during this project's window: id, one line, and whether shipped code is inert until it's done. "None." if clean.>
 
 ## Recommendations for next time
 

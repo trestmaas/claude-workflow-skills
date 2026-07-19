@@ -77,6 +77,20 @@ For each acceptance criterion:
 - Write a test that asserts the criterion. The test must currently fail (the code that makes it pass doesn't exist yet — that's the point).
 - Run `test.bail` (or `test.command` if no `bail` variant) to confirm it fails as expected. If it passes accidentally, the criterion is already met or the test isn't actually testing it — investigate before continuing.
 
+**If the ticket quotes a concrete example, verify it reproduces before you build a test on it.** A plan can ship an example that looks right and doesn't actually trigger the bug (mobile-responsive-fixes did it twice in fifteen tickets — an email whose hyphen let Chrome wrap it, a location string too short to overflow the document). If the ticket's value doesn't reproduce, **find one that does, use it, and say so in your report** — do not quietly assert against a value that was already green.
+
+**Then ask the harder question: what would make my fix inert?**
+
+Red-then-green proves your test detects the **removal** of your code. It does *not* prove your code **does anything**. Those are different claims, and the gap between them is where silent no-ops live.
+
+SIGN-373 added `pb-[env(safe-area-inset-bottom)]` to a fixed bottom bar. Its author falsified all four source changes and every one went red — textbook discipline. The fix was still a **complete runtime no-op**: `env(safe-area-inset-*)` resolves to `0px` unless the document opts into `viewport-fit=cover`, which the app never did. On a real notched phone nothing changed. A class-name assertion is green whether or not the value resolves to anything, and headless CI has no safe area, so neither level of test could see it. (A pre-existing `ui/sheet.tsx` had been inert the same way, for months.)
+
+So, before you call it done:
+
+- Name the capability your fix silently depends on — a viewport meta, a feature flag, a polyfill, a browser API, a CSS feature behind an opt-in, a header, an env var.
+- Ask: if that dependency were missing, would *any* of my tests fail? If the honest answer is no, **you have not tested the fix — you have tested that you typed it.**
+- Add the assertion that *can* fail: assert the served artifact (the meta tag, the computed value, the resolved pixel), not the source you just wrote.
+
 Commit: `tests: failing tests for <TICKET-ID>`.
 
 ### 6. Implement
@@ -125,6 +139,19 @@ This is a separate, explicit step rather than a side-effect of implementation be
 If the change is UI/frontend, invoke the `verify` skill or otherwise start the dev server and exercise the feature in a browser before declaring it done. Type checking verifies code correctness, not feature correctness.
 
 For pure backend / data work, the test suite is the verification.
+
+### 8b. File any manual tasks you uncovered
+
+If implementing this ticket surfaced work **a human must do outside the repo** — set a Vercel env var, add a DNS record, configure something in a Stripe/Google/OAuth dashboard, rotate a key, flip a flag, sign up for a third-party service, make a call only the user can make — file it per `/manual-tasks` **before** calling `/ship`. Then keep going.
+
+This is not a pause and **not a third way to end**. Step 10's two endings are unchanged. A manual task is deferrable by definition; if it genuinely blocks *you* from finishing the ticket, that is still `needs input:`.
+
+Which channel:
+
+- Can the ticket merge and this be done later? → **file a manual task**, ship normally.
+- Do you need an answer before you can write correct code? → **`needs input:`**.
+
+Set the task's priority to Urgent when the code you are about to merge is **inert until the manual step happens** — a feature reading an env var that doesn't exist yet ships green, passes review, and does nothing in prod. That is the exact failure this mechanism exists to catch: say so in the task's "Until then" line, and name the task id in your step-10 report so it isn't only visible in Linear.
 
 ### 9. Call /ship
 

@@ -25,6 +25,21 @@ If unset, ask which Linear team to use (`mcp__claude_ai_Linear__list_teams`).
 
 For one-off tickets, skip this and use `/start` directly.
 
+## Plan against `origin/main`, not your local checkout — fetch first
+
+**Before any probing or ticketing, run `git fetch origin` and plan against `origin/main`.** A local `HEAD` can be hours stale, and every premise you verify against a stale tree is a coin-flip.
+
+On the participant-flow-repair project the planner ran `git log` without fetching; local `main` was **21 commits behind** `origin/main`. In that gap, other work had already fixed bugs the plan was about to file, shipped a data-model the plan was about to duplicate, and turned one "bug" into deliberate security design. **Four of eighteen tickets were cancelled at execution time** for this single omission — including two where building the ticket as written would have *reintroduced a security hole* the codebase had just closed.
+
+Concretely, at plan start:
+- `git fetch origin` and note how far behind you are: `git rev-list --count HEAD..origin/main`. If it's non-zero, **every file:line you cite must be verified against `origin/main`** (`git show origin/main:<path>`), never the working tree.
+- When you quote code in a ticket ("`foo.ts:88` is a ternary"), you are asserting it's true *now*. Read the body on `origin/main`, not from memory or a skimmed grep — a signature is not an implementation (one ticket wired a checkbox to a procedure that turned out to be a `console.log` stub returning `success:true`).
+- Re-verify at execution time too: every `/start` prompt should tell the agent to `git fetch` and branch from the fetched `origin/main`, and to **stop and report if a premise is already fixed** — treat "this is stale" as a *success*, not a failure. That instruction is what let subagents catch the planner's stale-tree errors before they shipped.
+
+## Cross-check other in-flight `.handoffs/` bundles before writing tickets
+
+`/project-plan` is often run while *other* planned projects are executing in parallel. Enumerate them — `ls .handoffs/*/tickets.yaml` — and skim each for overlap with your scope **before** writing tickets. On participant-flow-repair, one ticket (a plus-one data model) turned out to duplicate the entire first half of a separate `p4-rsvp-first-class` project whose foundational ticket had merged two hours earlier; two projects building the same primitive is the worst outcome. Flag overlapping scope, **shared files** (two projects editing one file race at merge), and **migration-number collisions** (both projects claiming `0060_*.sql`) in the project description, and re-scope or cancel the overlap at plan time.
+
 ## Probe the codebase before declaring file surfaces
 
 Before any tickets are written, **probe the repo for its actual conventions** — declared paths that don't match reality cause silent drift at execution time. The probe is cheap; do it once at plan start and refer to it while filling `files:` for each ticket.
@@ -269,6 +284,67 @@ Multi-calendar shipped an unintended visual regression this way. SIGN-349's AC s
 
 > **When you quote a literal string in an AC, grep the codebase for how that thing is currently rendered.** Dates, times, currency, pluralization, capitalization, truncation. If your string implies a different convention than what ships today, you have either (a) accidentally mandated a migration, or (b) written a criterion that contradicts a "no visual change" / "preserve existing behavior" criterion elsewhere in the plan. Decide which, deliberately, at plan time.
 
+## A foundation ticket's ACs must enumerate every rule, not summarize
+
+When a ticket's deliverable is a data-driven **registry / config / rule-table** that N sibling tickets consume (an action registry, a capability map, a permission set), its acceptance criteria must specify the rule for **each entry explicitly**, and its tests must assert each — because a summary reads as complete while shipping a hole that only surfaces three tickets later.
+
+On P1, SIGN-405's registry AC said "Move/Remove don't apply to a headcount row." The agent implemented the *move* gating (via `slotCount`) and never hid *remove* or *resend* — "Move/Remove" read as one rule but was two, and the gap stayed invisible until SIGN-416 tried to converge onto the registry and hit a merged sibling's test. It forced a mid-run `needs input:` pause and a scope expansion. "Move/remove" is not one rule. If the deliverable is a table, the AC is a table: one falsifiable row per entry, per surface it feeds.
+
+## An example in an AC must actually reproduce the bug
+
+A bug ticket usually quotes a concrete input — the email that overflows, the title that wraps, the payload that 500s. That example is not illustration. It is **the thing the agent will write its test against**, so a plausible-looking example that doesn't actually reproduce the bug is *worse than no example*: it manufactures a false green. The agent writes the test the AC asked for, watches it pass, and ships a fix it never proved.
+
+This applies to **geometry and threshold assertions too, not just string/value inputs.** On P1, SIGN-428's e2e was authored to prove the participant detail was "a centered modal, not a right-hugging drawer" via `box.x + box.width < viewportWidth - 1`. That assertion *passed for the drawer it was meant to reject* — a ~460px drawer's right edge lands ~15px short of a 1280px viewport, so only the (also-present) height check would have caught it. The agent found it, replaced it with a real centered-check, and verified red against the drawer before shipping. When an AC quotes a pixel bound, a timeout, a percentage, or any numeric threshold as the discriminator, **compute it against the actual reject-target at plan time** — the same "run it before you quote it" rule the value-input case demands.
+
+Mobile-responsive-fixes authored this twice in fifteen tickets:
+
+- SIGN-363's AC quoted `christopher.wolfeschlegelstein@example-domain.org` as an email that overflows its box. It contains a **hyphen**, and Chrome breaks lines at hyphens — it wraps unaided. The AC's `scrollWidth <= clientWidth` assertion was green *without the fix*.
+- SIGN-368's AC quoted a 51-character location as one that forces sideways scroll. It overflows the header *row* but not the *document* — it spills into the page's own 16px padding. Also green without the fix. It took 72 characters to genuinely scroll the page.
+
+Both were caught only because the executing agents reverted their fix and confirmed the test went red. Neither would have been caught by review, by CI, or by the criterion itself.
+
+> **Before you write a concrete example into an acceptance criterion, run it.** Reproduce the bug with that exact value — in a browser, a REPL, a scratch test, whatever's cheap. If it doesn't reproduce, find a value that does and quote *that*. If you can't reproduce it at plan time, say so in the ticket ("repro value not verified — confirm before writing the test") rather than presenting an unverified example as if it were the spec.
+
+This is the single highest-leverage check in this skill. Hands-off parallel execution cannot self-detect a test that is green for the wrong reason.
+
+### Never prescribe an assertion that cannot go red
+
+The example is one way to manufacture a false green; the **assertion itself** is the other. When an AC dictates *how* to test — and layout/CSS ACs almost always do — it is easy to prescribe an assertion that passes against the broken code, so the agent writes exactly what you asked and ships an unproven fix. participant-flow-repair authored three of these, one of them in an AC written specifically to *prevent* false greens:
+
+- **Class-name assertions.** ACs demanded the fix be verified by `expect(el.className).toContain("break-all")` (and three existing tests did the same). The class *is* the bug; asserting its presence passes while the page is visibly broken. A Tailwind arbitrary-value class is worse still — it can be typed in source but never emitted by the build, so a class-name assertion is green whether or not the style exists.
+- **`getClientRects().length === 1` on a block element.** An AC prescribed this to prove a heading no longer wraps. `getClientRects()` on a block returns **one border-box rect no matter how many text lines it holds** — the assertion is `=== 1` before and after the fix. It can never go red. (The honest version counts line boxes with a `Range` over the heading *text*: `range.getClientRects()`.)
+
+Rules for any AC that mandates a test:
+- Assert a **rendered/computed property**, never a source token: line boxes via a `Range`, `getComputedStyle().overflowWrap`, `elementFromPoint`, measured geometry. Never a `className`, and never a single block-level rect count.
+- Require the ticket to **prove red-before-green by reverting only the fix** — the agent must watch the test fail against the unfixed tree, and for a class/CSS fix, strip *only* the changed class from a real build and confirm it goes red (a subagent caught an inert Tailwind fix exactly this way).
+- If you cannot construct a falsifiable assertion at plan time, say so in the ticket rather than prescribing one that can't fail. A wrong prescribed assertion is worse than none — the agent trusts it.
+
+## Sequence global-chrome tickets ahead of layout-measuring ones
+
+When one ticket changes something **global** — a CSS rule on `html`/`body`, a shared layout wrapper, a root provider, a base font size — and another ticket **measures** what the global thing affects, they are not independent, even when their file surfaces don't overlap. The file-surface auto-sequencer will not catch this: the conflict is in the *rendered result*, not the source tree.
+
+Two instances in one project, both discovered in CI rather than at plan time:
+
+- SIGN-373 added `html { overflow-x: clip }`. That makes `document.documentElement.clientWidth` report the **clip box** rather than the content width — so SIGN-374's viewport-width assertions started measuring the wrong ruler and its CI went red. The code was correct; the yardstick wasn't.
+- SIGN-366 added a mobile affordance to a page whose above-the-fold contract SIGN-364 had asserted in e2e. The new row pushed the first slot below the fold and correctly failed SIGN-364's test.
+
+Both are *good* outcomes — the tests did their job — but each cost a red CI and a debugging round-trip that an explicit edge would have prevented.
+
+> **At plan time, ask: does any ticket change a global that another ticket measures?** Global CSS, root layout, shared providers, viewport meta, base typography. If yes, add an explicit `depends_on` so the global lands first and the measuring ticket is written against the world as it will actually exist. Note it in the dependent's description too, so the agent knows *why* it's sequenced.
+
+## Manual setup is not a ticket — file it, don't schedule it
+
+Planning routinely surfaces prerequisites that no agent can execute: an API key that has to be generated in someone's dashboard, a DNS record, an OAuth app that needs a consent screen, a third-party account, an env var that must exist in Vercel before the feature does anything.
+
+Do **not** turn these into tickets in `tickets.yaml`. A ticket in the bundle is a promise that `/start` can pick it up in a worktree and merge a PR — and `/start` cannot log into a dashboard. Scheduling one guarantees a spawned agent, a burned worktree, and a pause.
+
+Instead, **file each as a manual task** per `/manual-tasks`, at plan time, before the project starts. Then:
+
+- If a *ticket* can't work until the manual task is done, say so in that ticket's description ("requires <TASK-ID>: `RESEND_API_KEY` set on Production") so the `/start` agent knows why its feature won't come alive locally, and doesn't go looking for a bug that isn't there.
+- Report the count in your final line so the user can clear them while the project runs, rather than discovering them at merge time.
+
+The `external_depends_on` field is for foreign *tickets*, not for these — a manual task has no PR and no Done-via-merge, so don't wire it into the DAG. It runs alongside the project, not inside it.
+
 ## Asking-questions discipline
 
 - Don't ask all 7 questions at once. Ask 1–2, listen, restate, ask the next.
@@ -286,3 +362,5 @@ Multi-calendar shipped an unintended visual regression this way. SIGN-349's AC s
 ## Report
 
 Final line: `result: planned <project-name> — N tickets, M depends_on edges, handoff at .handoffs/<slug>/`.
+
+If you filed any manual tasks, add: `manual: K task(s) filed — <ids>`.
