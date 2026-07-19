@@ -1,10 +1,15 @@
 # claude-workflow-skills
 
-Five Claude Code skills that take you from "idea" to "merged code" with the human in the loop only when it actually matters — pausing on ambiguity, not babysitting each step.
+Six Claude Code skills that take you from "idea" to "merged code" with the human in the loop only when it actually matters — pausing on ambiguity, not babysitting each step.
 
 ```
 /project-plan ──► /project-start ──► /start ──► /ship ──► /project-retro
                   (parallel, hands-off)            (one ticket)    (when project closes)
+       │                              │           │           │
+       └──────────────────────────────┴───────────┴───────────┘
+                              ▼
+                        /manual-tasks
+              (human-only work, filed without blocking)
 ```
 
 > **Requires the matt-pocock skills.** `/project-plan`, `/start`, and `/ship` delegate their thinking to `/grilling`, `/domain-modeling`, `/tdd`, and `/code-review` rather than duplicating it. Install those alongside this set (run `/setup-matt-pocock-skills`); without them, those `/skill` references dangle.
@@ -18,6 +23,18 @@ Five Claude Code skills that take you from "idea" to "merged code" with the huma
 | **`/start`** | Single-ticket execution: isolated worktree → Linear In Progress → branch → failing tests against acceptance criteria → implement → `/ship`. Pauses as `needs input:` on ambiguity rather than guessing. |
 | **`/ship`** | Take one ticket's local working state to merged: pre-push gate → push → PR → Linear In Review → hand off to a delivery agent → on-merge cleanup. |
 | **`/project-retro`** | Post-project writeup with quality signals (CI pass rate, review iterations, reverts, fixups, plan drift). Lives in a Linear doc. No external telemetry. |
+| **`/manual-tasks`** | Side-channel for work no agent can do — env vars, DNS, dashboard config, third-party signups. The other skills file into it mid-run *without halting*; `/manual-tasks` walks the open list, doing what it can and handing back the rest. |
+
+### Why `/manual-tasks` is a separate channel
+
+Every other skill has exactly one way to ask for a human: `needs input:`, which **halts the ticket**. So an agent that discovers "this needs a Vercel env var before it works in prod" has to either block otherwise-shippable code, or bury it in a run report nobody re-reads. It was always the second, and those got lost.
+
+The split:
+
+- **`needs input:`** — blocking, needs an *answer* now, halts one ticket.
+- **A manual task** — deferrable, needs an *action* in an external system, does **not** block the merge.
+
+Tasks land in a standing, never-completing Linear project (label `manual`). `/project-start`'s closeout reports what a run opened, because **a project can be 100% merged and still not work** — and that has to be said in the same message that announces the merges.
 
 ## The contract — `tickets.yaml`
 

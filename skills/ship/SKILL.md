@@ -97,7 +97,13 @@ If push fails (rejected, divergent history, etc.), pause `needs input:` with the
   ```
 
 - Create via `gh pr create --title "..." --body "$(cat <<'EOF' ... EOF)"` (HEREDOC for formatting).
-- **Always queue `gh pr merge <N> --auto --squash` immediately after creating the PR.** This is the auto-merge handoff — GitHub merges when all checks pass, no further `/ship` action required. Retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error (observed across multiple projects; succeeds on immediate retry). If the second attempt also fails, surface the error but continue — the orchestrator will queue auto-merge defensively when it sees the open PR.
+- **Do NOT arm auto-merge here.** Auto-merge is armed in step 6d, *after* the reviews return clean. Opening the PR does not queue the merge.
+
+  This used to say "always queue `gh pr merge --auto --squash` immediately after creating the PR," and that was wrong in a way that took a live defect to see. Arming auto-merge at PR-creation races the merge against the review: whenever CI is faster than the reviewers — which is most PRs — GitHub merges while `/code-review` and `/security-review` are still reading. The reviews then become a post-mortem on code that is already on `main`.
+
+  This is not hypothetical. On SIGN-292, PR #546 merged at 18:40 while its reviews were still running. Both reviews *worked* — they found two real defects — but they found them too late to gate anything, so the fixes had to ship as a separate follow-up PR (#559). One of the two: the webhook dispatcher treats an empty `eventTypes` list as *subscribe to all*, and the new Edit dialog let an operator untick every chip — the UI read "none selected" while the endpoint would have started receiving all 13 event types. An operator deliberately narrowing a webhook would have silently widened it to maximum. That reached `main` because nothing gated on the review.
+
+  Whether the reviews gate a given PR is currently a race with CI, and nothing in the output tells you which way it went. That is the bug. Arm the merge once, at the end, when you know the reviews came back clean.
 
 ### 5. Set Linear to In Review
 
@@ -113,7 +119,10 @@ If `delivery.agent` is configured, spawn that subagent with a prompt like:
 PR #<N> on branch <branch-name> is ready for delivery. Linear ticket <TICKET-ID> is In Review.
 Run /code-review against the PR base branch (matt's two-axis Standards + Spec skill, NOT the built-in /review) and /security-review, then watch CI to green and merge (squash). On merge, return control.
 Before trusting either review, CONFIRM IT TARGETED THIS PR'S DIFF — see "Assert the review targeted the right diff" below.
+Post a one-line verdict for each review (Standards / Spec / Security → pass or the findings) as a PR comment BEFORE merging, so the review record is durable and countable.
 ```
+
+**Record the review verdicts where they can be counted.** `/code-review` and `/security-review` are skill-invoked, so they leave **no GitHub-native review object** — `gh pr view --json reviews` returns `0` for a fully-reviewed PR, and `/project-retro` cannot measure review iterations (the metric it most wants) or even confirm a review happened. Post each review's verdict as a `gh pr comment` (or a Linear comment) at merge time. It also gives the orchestrator a way to see, from outside the agent, that the reviews actually ran — which is exactly what distinguishes a clean merge from a stalled one that skipped review.
 
 Run in the **foreground** so `/ship` blocks until merged.
 
@@ -148,9 +157,38 @@ Before accepting any review output:
 1. Confirm the review's reported target matches this PR. Establish ground truth with `git -C <worktree> rev-parse --abbrev-ref HEAD` and `gh pr view <N> --json headRefName`.
 2. If the review names a different branch — or names no branch at all — **discard its output** and re-run it explicitly scoped to the PR's diff (e.g. against `origin/<base>...<pr-branch>`, or from inside the PR's worktree).
 3. If you cannot establish what a review actually looked at, treat that ticket's review coverage as **not done** and say so in your report. Never report "security review passed" on an unverified target.
-3. Address any high-confidence findings or pause `needs input:` with them.
-4. Watch `gh pr checks <N> --watch` (or poll every 3 minutes) until green.
-5. `gh pr merge <N> --squash --auto` (if `gh pr merge --auto` is supported on this repo) or `gh pr merge <N> --squash` directly.
+4. Address any high-confidence findings or pause `needs input:` with them.
+5. Watch `gh pr checks <N> --watch` (or poll every 3 minutes) until green.
+
+**Never run two review agents concurrently in the same worktree.** Give each its own, or run them sequentially. A reviewer that verifies falsifiability will *deliberately mutate the tree* — reverting the fix to confirm the test actually goes red — and a sibling running in that same tree observes the mutated state.
+
+On SIGN-382 (PR #668, a live billing path) this produced a phantom "flaky test on the money path": one reviewer reverted both guards to test them, the other ran concurrently, saw 4-of-6 billing tests fail, could not reproduce it afterwards, and nearly blocked the merge on a defect that never existed. Diagnosing it took an mtime forensic — a source file written *between* one run starting and the next — to prove the tree had been mutated mid-run.
+
+Two rules fall out:
+- **Isolate mutating reviewers.** If a review will revert, stub, or otherwise edit source to prove a test is honest, it needs its own worktree.
+- **A reviewer that mutates the tree must announce the window** — before and after — so a concurrent result can be discarded rather than believed. An unannounced mutation makes *every* concurrent observation untrustworthy, including the ones that look clean.
+
+### 6d. Arm auto-merge — only now, once the reviews are clean
+
+This is the **only** place auto-merge gets armed. Step 4 deliberately did not.
+
+Preconditions, all of which must hold before you run the command:
+
+- Both reviews produced real output (6b) and provably targeted **this PR's diff** (6c).
+- Every high-confidence finding is either fixed on the branch or explicitly accepted, in writing, in your report.
+- If you pushed fixes in response to a finding, CI is green **on the fixed commit** — not on the commit the review read.
+
+Then:
+
+```bash
+gh pr merge <N> --auto --squash
+```
+
+Retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error (observed across multiple projects; succeeds on immediate retry). If the second attempt also fails, surface the error but continue — the orchestrator queues auto-merge defensively when it sees an open PR, and 6a below will still block until the merge is confirmed.
+
+**Why the ordering is load-bearing:** arming at PR-creation makes "do the reviews gate this merge?" a race against CI. Fast CI, and the PR is already on `main` before a reviewer finishes reading it; slow CI, and the reviews gate properly. Same code, same skill, different outcome, and nothing in the output tells you which one you got. Arming here removes the race — the merge cannot fire before the reviews land, because it hasn't been queued yet.
+
+The cost is that a *dead* review agent now strands the PR open rather than letting it sail through. That is the correct trade (a stranded PR is visible and recoverable; an unreviewed merge is neither), and the orchestrator's stranded-PR sweep already exists to catch exactly this.
 
 ### 6a. Block on merge confirmation before returning
 
@@ -179,6 +217,16 @@ This loop blocks the foreground; that's intentional. The orchestrator's concurre
 ### 8. Report
 
 Final line: `result: shipped <TICKET-ID> — PR #<N> merged`.
+
+If any manual task is open against this ticket, add a second line: `manual: <TASK-ID> — <one-line what the human must do>`. A merged PR reads as finished; if it's inert until someone sets an env var, the report is the last place that can say so.
+
+## Merging code that doesn't work yet
+
+If this PR is **inert or broken in production until a human does something external** — an env var that doesn't exist, a webhook not yet registered, a DNS record not yet pointing anywhere — do not silently merge it as though it's live:
+
+1. File it per `/manual-tasks` at priority Urgent, if `/start` hasn't already.
+2. Note it in the PR body under a `## Requires manual setup` heading, with the task id. The PR is the artifact a future reader lands on when they wonder why this never worked.
+3. Ship normally. This does **not** block the merge — that's the entire point of the manual-task channel.
 
 ## Failure modes — what counts as `needs input:`
 

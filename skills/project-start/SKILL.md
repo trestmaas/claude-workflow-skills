@@ -15,6 +15,7 @@ Take a project that's been `/project-plan`ned and execute it end-to-end, paralle
   - The `pwd`-not-in-`.claude/worktrees/` check still holds, but for a different reason: `/project-start` should orchestrate from the main checkout so `.handoffs/` and `main` resolve normally. If `main` is checked out in another worktree, don't switch the user's branch — read the bundle from `origin/main` with `git show origin/main:.handoffs/<slug>/tickets.yaml`. Children branch from `origin/main` regardless.
 - A `.handoffs/<project-slug>/tickets.yaml` exists. If not: pause `needs input: no handoff bundle for <project>, run /project-plan first`.
 - The Linear project is in `Backlog` or `Planned`. If it's already `In Progress`, ask whether to resume or restart.
+- **The evergreen "Manual tasks" project is never an execution target.** It has no handoff bundle, its tickets have no file surface, and it is permanently `In Progress` by design. If asked to run it, refuse and point at `/manual-tasks`. Never mark it Completed — step 7.4 does not apply to it.
 
 ## Input
 
@@ -107,21 +108,77 @@ while ready or running:
 
 **Implementation notes:**
 - Use the `Agent` tool with the `general-purpose` subagent type (or a dedicated agent if available) for each `/start` spawn. Pass `run_in_background: true` so they run concurrently.
-- Each subagent prompt should start with: "Execute `/start <TICKET-ID>` per the skill. Report `result:` on merge, `needs input:` on any block. Do not engage with anything outside this ticket."
+- Each subagent prompt should start with an **imperative that forces action, not restatement**: "Begin now by invoking `/start <TICKET-ID>`. This is a real work assignment — actually execute it, don't restate it. Your first action should be a Bash call." One participant-flow-repair spawn opened with "Execute `/start …`", consumed its own setup reminder as if it were the task, replied "the user wants me to invoke /start", and exited with **0 tool uses** — a dud launch that looks completed but did nothing. Verify a fresh spawn actually started (it reported In Progress / pushed a branch); a return with near-zero tool use is a dud — re-spawn it.
+- **Make the `/start` prompt include a worktree self-check as its first action:** "Run `git rev-parse --show-toplevel`; if it is not under `.claude/worktrees/`, you are NOT isolated — create a real worktree per the /start fallback and use `git -C`, never mutate the shared checkout's HEAD." `isolation: "worktree"` occasionally fails silently — one agent ran in the shared main checkout and its `git checkout -b` moved the shared HEAD before it detected and recovered. The self-check catches it.
+- **Tell every `/start` prompt to `git fetch` and branch from the fetched `origin/main`, and to stop-and-report if a premise is already fixed** (a valued outcome, not a failure). This is the execution-time half of the planner's fetch-first rule and it is what catches a stale plan before it ships wrong code.
 - When notified that a background subagent completes, parse its final message for `result:`, `needs input:`, or `failed:` and act accordingly.
 - Never poll. The harness notifies you when a background subagent finishes.
 
-**Verify every subagent's merge claim via `gh` — don't trust the report alone.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice (per project #2 + #3 retros) subagents sometimes return with a review-summary tail or stop at PR-open instead of waiting on merge. The orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
+**Verify every subagent's merge claim via `gh` — don't trust the report alone. This is mandatory, not belt-and-suspenders.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice subagents return without merging, without reviewing, or without knowing they failed. The orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
 
 1. Extract the branch name (per the configured `branch.format` from `.claude/conventions.yaml`, or pull from Linear ticket's `gitBranchName`).
 2. Run `gh pr list --head <branch> --state all --json number,state,mergedAt --limit 1`. Parse:
    - `state: "MERGED"` (and `mergedAt` populated) → confirmed merged. Mark Done, release dependents.
-   - `state: "OPEN"` → **belt-and-suspenders auto-merge.** Run `gh pr merge <N> --auto --squash` defensively (retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error). Then wait briefly (~10s) and re-check state. If now MERGED → mark Done. If still OPEN → **pause** with note "<TICKET-ID> subagent returned without merge; PR #<N> still open. Auto-merge queued; check CI."
+   - `state: "OPEN"` → **belt-and-suspenders auto-merge — but only if the subagent reported `result:` (merge intended, delivery fumbled).** Run `gh pr merge <N> --auto --squash` defensively (retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error). Then wait briefly (~10s) and re-check state. If now MERGED → mark Done. If still OPEN → **pause** with note "<TICKET-ID> subagent returned without merge; PR #<N> still open. Auto-merge queued; check CI."
+
+     **Never defensively arm a PR whose subagent returned `needs input:` or `failed:`.** As of the `/ship` fix, auto-merge is armed *after* reviews return clean — so an un-armed open PR may mean the reviews found something, not that the agent forgot. Arming it here would merge exactly the code a reviewer just objected to, and it would look like a recovery. If the subagent paused, leave the PR open and keep it paused. The whole point of moving auto-merge behind the reviews is lost if the orchestrator arms it anyway.
    - `state: "CLOSED"` (and no `mergedAt`) → closed without merge. Treat as **failed** with the PR's close reason.
    - No PR found → treat as **failed** (subagent didn't even push).
 3. Independently confirm the Linear ticket's status via `mcp__claude_ai_Linear__get_issue`. If Linear says Done but gh says not-merged (or vice versa), surface the inconsistency to the user and pause that ticket — don't release dependents from a contradictory state.
 
 The verification cost is two cheap reads + one defensive merge call. The cost of trusting an unverified merge claim is dependents getting unblocked into a broken parent — much harder to recover from. Across projects #2 and #3, 5 of 21 subagent returns required this fallback — about 25%. Not optional.
+
+### The green-but-open stall — nudge the owner, don't bare-merge
+
+The single most common delivery failure on participant-flow-repair (it hit most tickets) was not a crash: the `/start` agent pushed, handed off, set its *own* background CI monitor, and went **idle** — CI then went fully green and the PR sat OPEN forever because the monitor exited without waking the agent. The agent never returns a `needs input:`; it just reports "waiting on CI" and stops. Nothing in the DAG moves.
+
+Two defenses, used together:
+- **Arm your own per-PR merge/stall monitor as the default, not a fallback — and arm it the moment the PR exists, not when the agent tells you about it.** Run a background `Monitor` that polls the PR and emits on exactly three terminal states: `MERGED`, `CI-FAILED`, and **`GREEN-but-still-OPEN`**. The third is the stall signal, and only an orchestrator-level watch reliably catches it — the agents' own monitors don't.
+
+  This used to say "after a subagent reports its PR is up-and-in-CI." That waits on a signal that frequently never arrives cleanly. **Across three consecutive projects, 7 of 7 `/start` agents ended their turns idle-waiting on CI rather than confirming a merge** — several pinged "waiting on build" four or five times without ever reporting terminal state. Do not gate your watch on their report. Poll `gh pr list --head <branch>` yourself once a branch is pushed, and arm the monitor as soon as a PR number exists.
+
+  Concretely, a monitor covering several PRs at once works well and costs one tool call:
+
+  ```bash
+  declare -A fin
+  while true; do
+    for p in <pr numbers>; do
+      [ -n "${fin[$p]}" ] && continue
+      st=$(gh pr view $p --json state --jq '.state' 2>/dev/null) || continue
+      [ "$st" = "MERGED" ] && { echo "PR #$p MERGED"; fin[$p]=1; continue; }
+      [ "$st" = "CLOSED" ] && { echo "PR #$p CLOSED without merge"; fin[$p]=1; continue; }
+      f=$(gh pr checks $p --json name,state 2>/dev/null | jq -r '[.[]|select(.state=="FAILURE" or .state=="ERROR")]|length' 2>/dev/null || echo 0)
+      [ "${f:-0}" -gt 0 ] && { echo "PR #$p CI FAILED"; fin[$p]=1; }
+    done
+    # ...break when all terminal
+    sleep 30
+  done
+  ```
+
+  Evidence this is load-bearing, not belt-and-suspenders: on the Behavioral/Calendar runs the orchestrator monitor caught **every** merge, and caught the one PR that was genuinely stranded (#651 — all checks green, auto-merge never armed, would have sat open indefinitely). Without it nothing in the DAG would have moved.
+- **On a green-but-open stall, resume the *owning* agent (`SendMessage`), don't merge it yourself bare.** The owning agent holds the review record; a message resumes it from its transcript and it completes review-confirmation + merge in one step. A bare `gh pr merge` from the orchestrator is correctly **blocked** when the PR has no documented review (see below) — and it should be. Reserve the orchestrator's own merge for when you have *first* produced the review record (e.g. via a dedicated review-then-merge agent), which is the right recovery when the owning agent is truly dead rather than merely idle.
+
+**Do not merge a PR on CI-green alone.** A green build is not a passed review. If a subagent's delivery stalled such that `/code-review` + `/security-review` never completed (common when the *delivery* sub-agent dies, e.g. during an infra outage), the PR has green CI and **no review record** — merging it there skips the one gate every other PR passed. The host may block the bare merge; that block is correct. Route it through an agent that runs the reviews scoped to `origin/main...<branch>` first, then merges.
+
+### The delivery hand-off is untrusted by default
+
+Mobile-responsive-fixes ran 15 tickets through the delivery agent. It failed in **five distinct ways**, and every failure was caught only by checking `gh`/Linear directly rather than believing the report:
+
+1. **Returned without producing `/code-review` or `/security-review` output** (×3) — "it ran" is not "it passed."
+2. **Died mid-response** on an API error, after queueing the merge but before reporting.
+3. **Stopped before arming auto-merge.** PR #528 sat OPEN with green CI and would have waited forever. Nothing in the DAG would have moved.
+4. **Let Linear drift out of sync** with a merged PR (×3) — tickets stuck in `In Review` while their code was on `main`. Closeout would have refused to complete the project.
+5. **Reviewed a stale merge-base** — diffed 168 files instead of 9, so its "review" never looked at the PR's actual code at all.
+
+Failure modes 3 and 5 are the dangerous ones: a silently stranded PR blocks the whole DAG, and a review of the wrong diff is worse than no review because it *reads* like assurance. (In this run, mode 5 nearly let a runtime no-op ship — the `/start` agent discarded the bogus review and re-ran it correctly.)
+
+So, for every ticket, the orchestrator does all three of these — no exceptions, no "the agent said it was fine":
+
+- **Auto-merge armed?** `gh pr view <N> --json autoMergeRequest`. If null and the PR is open, arm it yourself. A subagent's "done" does not imply a queued merge.
+- **Linear matches GitHub?** `mcp__claude_ai_Linear__get_issue` vs `gh pr view --json state`. Reconcile drift to whatever GitHub says — the merge is the ground truth, the ticket status is bookkeeping.
+- **Review artifacts exist and targeted the right diff?** If the hand-off came back without them, or its diff doesn't match `gh pr diff <N> --name-only`, treat the review as **not done** and re-run it scoped explicitly to `origin/main...<branch>`.
+
+Also brief every `/start` subagent that the delivery agent is unreliable, so it doesn't accept an empty hand-off either. In this run the subagents caught most of these themselves once told to expect them — the defense works best at both layers.
 
 ### 5. Surface progress
 
@@ -195,6 +252,20 @@ This is the deliberate notification trigger so the human can decide whether to h
 
 If the retro has no recommendations (clean run, no learnings), skip this step and just report.
 
+### 7b. Surface the manual tasks this run opened
+
+Before reporting, query open issues labelled `manual` created since the project's `startedAt`. These are the human-only prerequisites the run uncovered — env vars, DNS, dashboard config — that were deliberately *not* allowed to block any merge.
+
+List them in the report, Urgent ones first:
+
+```
+manual: K task(s) opened this run — <ID>: <one line> [blocks: SIGN-xxx is inert until done]
+```
+
+**A project can be 100% merged and still not work.** That is the normal, expected outcome of the manual-task channel doing its job, not a failure — but it has to be *said*, in the same message that announces the merges, or it isn't said anywhere the user will read. Do not let a clean `result:` line be the only thing they see.
+
+Do not block completion on these and do not attempt them yourself — `/manual-tasks` is where they get worked.
+
 ### 8. Report
 
 Final line on full success: `result: shipped <project-name> — N tickets merged in <duration>`.
@@ -205,6 +276,8 @@ On partial: `result: partial — N merged, M paused/failed (see paused list abov
 
 - Default 3 keeps merge-conflict surface low. Override via `concurrency:` in tickets.yaml when planning known parallel-friendly work; lower it for conflict-prone work (e.g., a refactor touching shared infra).
 - File-surface auto-sequencing is best-effort — it catches *declared* overlap. If two tickets touch the same file but one didn't declare it, you'll only find out at PR/merge time. Surface this in `/project-retro` so future plans get tighter declarations.
+- **Serialize on edit *regions*, not filenames — git auto-merges disjoint hunks.** The auto-sequencer serializes any two tickets sharing a file, which is the safe default. But when several ready tickets all list one hotspot file (an `EventManagement.tsx`, a barrel, a router), check whether their actual edits fall in *disjoint regions* before forcing them serial. On P3, four tickets "touched `EventManagement.tsx`" — but three edited provably non-overlapping regions (a header count / a deleted `<section>` + import / one prop line ~50 lines apart), and git rebase auto-merges non-overlapping hunks cleanly. Running them concurrently merged with zero conflicts; serializing would have cost three cycles to prevent a conflict that can't happen. The one that genuinely *restructured* the file (the toolbar hoist) did have to land first. Rule: overlap of *regions* forces serial; shared filename with disjoint regions does not. Grep each ticket's target lines/symbols to decide; if you can't prove disjointness, serialize.
+- **A CI-*failed* check on a long-armed PR is usually a stale branch, not a code defect.** Distinct from the green-but-open stall above: a PR that armed auto-merge early, then sat while N siblings merged under it, can go red on a *required* check purely because its branch is now behind `main` — a dep lockfile bump (agents reinstalling `node_modules` mid-run shift `@types/*` versions), a renamed symbol, or a type a sibling changed. CI builds the branch-merged-with-`main`, so it fails even though the PR passed its own gate locally. On P3, SIGN-426 sat armed-but-blocked for ~2h on a `Typecheck` failure that was one stale mock-call type against the new `@types/bun`. **Before treating a long-armed red PR as a real failure: rebase it onto `origin/main` in a worktree and re-run just the failing check.** If it's a clean rebase + a mechanical fix (a cast, an import, a renamed reference), the orchestrator can own that fix directly (same class as arming a merge — it is not writing feature code), force-push, and re-arm. Only if the rebase conflicts or the failure is substantive do you route it back to an agent.
 
 ## Two projects in parallel
 
