@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Take one ticket's local working state from "code written" to "merged" hands-off. Runs the project's pre-push gate, pushes, opens a PR titled with the ticket id, sets Linear to In Review, hands off to a delivery agent (or inline review + merge if none configured). Reads `.claude/conventions.yaml` for project specifics; falls back to package-manager auto-detection. Worktree is kept until merge confirmed.
+description: Take one ticket's local working state from "code written" to "merged" hands-off. Runs the project's pre-push gate, pushes, opens a PR titled with the ticket id, sets Linear to In Review, hands off to a delivery agent (or inline review + merge if none configured). Reads `.claude/conventions.yaml` for project specifics; falls back to package-manager auto-detection. Worktree is kept until merge confirmed. Requires the `/code-review` skill (mattpocock/skills) — the two-axis one, not the built-in `/review`.
 ---
 
 # /ship
