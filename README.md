@@ -12,7 +12,14 @@ Six Claude Code skills that take you from "idea" to "merged code" with the human
               (human-only work, filed without blocking)
 ```
 
-> **Requires the matt-pocock skills.** `/project-plan`, `/start`, and `/ship` delegate their thinking to `/grilling`, `/domain-modeling`, `/tdd`, and `/code-review` rather than duplicating it. Install those alongside this set (run `/setup-matt-pocock-skills`); without them, those `/skill` references dangle.
+> **Requires the matt-pocock skills.** `/project-plan`, `/start`, and `/ship` delegate their thinking to `/grilling`, `/domain-modeling`, `/tdd`, and `/code-review` rather than duplicating it. Without them those `/skill` references dangle — and they dangle *quietly*, degrading into a flat questionnaire or a skipped review rather than erroring. Install them first:
+>
+> ```
+> npx skills add mattpocock/skills -g -y \
+>   --skill grilling --skill domain-modeling --skill tdd --skill code-review
+> ```
+>
+> `--skill` takes one name per flag; a comma-separated list is read as a single skill name and matches nothing. `/setup-matt-pocock-skills` is **not** an installer — it's a separate per-repo scaffolder (issue tracker, triage labels, domain doc layout) to run once per repo *after* the skills are installed.
 
 ## What each skill does
 

@@ -1,6 +1,6 @@
 ---
 name: start
-description: Execute a single Linear ticket end-to-end hands-off — enters an isolated worktree, sets Linear In Progress, creates a branch following the configured format, writes failing tests against the ticket's acceptance criteria, implements, then calls /ship. Pauses as `needs input:` on any acceptance-criterion ambiguity rather than guessing. Reads `.claude/conventions.yaml` for branch + test conventions.
+description: Execute a single Linear ticket end-to-end hands-off — enters an isolated worktree, sets Linear In Progress, creates a branch following the configured format, writes failing tests against the ticket's acceptance criteria, implements, then calls /ship. Pauses as `needs input:` on any acceptance-criterion ambiguity rather than guessing. Reads `.claude/conventions.yaml` for branch + test conventions. Requires the `/tdd` skill (mattpocock/skills).
 ---
 
 # /start
