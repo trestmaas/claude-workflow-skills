@@ -219,6 +219,20 @@ When the scope contains several visually-cousin tickets (e.g. multiple "Section 
 
 Project #5: THE-278 (Billing) and THE-281 (Dev Hub Overview) each independently invented a `cards/style.ts` in their respective subtrees — different parent paths so no collision, but the divergent shapes are technical debt waiting to be reconciled. A planning-time call-out would have prevented it.
 
+### Declare the sibling TEST files a shared component drags in
+
+The single biggest source of file-surface drift is invisible in the source tree: **when a ticket adds a tRPC query, hook, or prop to a shared component, every existing test file that mocks that component must also change** — because their hand-written mocks now lack the new procedure and the component throws. These test files are nowhere in the ticket's conceptual scope, so they get omitted from `files:`, and the drift only surfaces at build time.
+
+On "Monetize the AI creation flow", **7 of 10 tickets** touched undeclared files, and the majority of that was this one pattern: SIGN-609 and SIGN-612 each had to edit **four** existing `CreateSignupWizard.*.test.tsx` files to add a `draftAllowance` mock, none of which they'd declared. Two tickets, eight undeclared test files, one cause.
+
+So at plan time, for any ticket whose deliverable adds a query / hook / context-value / required prop to an **existing shared component**: grep for who already mocks it —
+
+```
+grep -rl "<ComponentName>\|trpc\.<router>\.<newProcedure>" src/**/__tests__ src/**/*.test.*
+```
+
+— and add every hit to that ticket's `files:`. This both makes the drift honest and lets the auto-sequencer serialize correctly against any sibling touching the same test files. If you can't enumerate them at plan time, say so in the ticket ("expect to update existing `CreateSignupWizard` test mocks — enumerate at build") so the executing agent treats it as expected work rather than unplanned scope.
+
 Example from project #2's first run (THE-247 + step tickets):
 
 ```yaml
