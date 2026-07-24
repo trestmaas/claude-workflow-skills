@@ -132,6 +132,8 @@ The verification cost is two cheap reads + one defensive merge call. The cost of
 
 The single most common delivery failure on participant-flow-repair (it hit most tickets) was not a crash: the `/start` agent pushed, handed off, set its *own* background CI monitor, and went **idle** — CI then went fully green and the PR sat OPEN forever because the monitor exited without waking the agent. The agent never returns a `needs input:`; it just reports "waiting on CI" and stops. Nothing in the DAG moves.
 
+**Treat "agent returns without a `result:` line" as the EXPECTED path, not an anomaly — and do not try to instruct it away.** On "Monetize the AI creation flow", 3 of 10 agents pushed a PR and ended their turn *without arming auto-merge*, and a 4th armed then idled re-reporting CI. One of the three was told **explicitly, in its spawn prompt**, not to stall — and stalled at exactly the same point anyway. The stall is structural: the agent's turn ends right after it emits the review, which is the step just before arming. Prompt wording does not fix it. The orchestrator-side watch + resume is the *only* mitigation that has ever worked. So budget for it: every ticket's normal lifecycle is "subagent returns having done the work but not closed delivery → orchestrator verifies via `gh` → orchestrator resumes the owning agent (or, under the review gate above, runs the independent review and then arms). Do not read a missing `result:` as failure; read it as the handoff point where the orchestrator takes over.
+
 Two defenses, used together:
 - **Arm your own per-PR merge/stall monitor as the default, not a fallback — and arm it the moment the PR exists, not when the agent tells you about it.** Run a background `Monitor` that polls the PR and emits on exactly three terminal states: `MERGED`, `CI-FAILED`, and **`GREEN-but-still-OPEN`**. The third is the stall signal, and only an orchestrator-level watch reliably catches it — the agents' own monitors don't.
 
@@ -179,6 +181,21 @@ So, for every ticket, the orchestrator does all three of these — no exceptions
 - **Review artifacts exist and targeted the right diff?** If the hand-off came back without them, or its diff doesn't match `gh pr diff <N> --name-only`, treat the review as **not done** and re-run it scoped explicitly to `origin/main...<branch>`.
 
 Also brief every `/start` subagent that the delivery agent is unreliable, so it doesn't accept an empty hand-off either. In this run the subagents caught most of these themselves once told to expect them — the defense works best at both layers.
+
+### Gate every PR on an INDEPENDENT review before arming the merge — the orchestrator is the only layer that can do this
+
+A `/start` subagent has **no sub-agent tool**. So when a project configures `delivery.agent` (e.g. `code-delivery-orchestrator`), that agent frequently *cannot be spawned at all* from inside the subagent — the subagent silently falls back to reviewing **its own diff inline**. Self-review is structurally weaker than independent review: an author checking their own code shares the author's blind spots, and will confirm the very property they're violating.
+
+This is not hypothetical. On the "Monetize the AI creation flow" project, the delivery agent was **never once spawnable** across 10 tickets; every ticket self-reviewed. Independent review was then applied to 3 of the 10 PRs and found a **BLOCKING defect in all 3** — an untagged share URL that violated the repo's mandatory UTM convention (unrecoverable attribution loss), a counter that painted a stale value because the *test's* mock was synchronous where real react-query is not, and an e2e guard that was inert because its waiter was satisfied six UI steps too early. Self-review found **zero** blocking defects across all 10. In each case the author had explicitly reasoned about the property being violated. **A 3/3 hit rate on the reviewed subset means the unreviewed PRs should be assumed to carry comparable defects.**
+
+The orchestrator *does* hold the Agent tool. So the orchestrator — not the subagent — spawns the independent reviewer, and gates the merge on it:
+
+1. When a `/start` subagent reports its PR is up with the gate green, do **not** let it arm auto-merge as the final step. Instruct subagents (in their spawn prompt) to push, open the PR, run the gate, set Linear In Review, and **stop without arming** — then report the PR number.
+2. Spawn a **fresh** `general-purpose` agent (NOT `run_in_background`-coupled to the author; a clean context that did not write the code) as a read-only reviewer: "you did not write this, find what its author missed." Point it at the PR's actual risk surface and tell it to distinguish BLOCKING from "I'd have done it differently." Have it end with a single `VERDICT:` line.
+3. **Verify the fix, don't trust the report.** If the reviewer finds a blocking defect, `SendMessage` the *owning* agent with the finding; when it reports fixed, read the diff yourself before arming.
+4. Only arm auto-merge (`gh pr merge <N> --auto --squash`) once the independent review is clean **or** its findings are fixed and verified. This deliberately serializes review before merge instead of merging-then-reviewing.
+
+Cost: one extra agent per ticket. Benefit, measured: three defects that would otherwise have shipped, one of them permanently unrecoverable. When `delivery.agent` is unspawnable this is the *only* independent check in the pipeline — treat it as mandatory, not belt-and-suspenders. If a run already merged PRs without this gate (e.g. because the DAG raced ahead), retro-review those merged PRs adversarially at closeout and file any findings as follow-up tickets — a merged defect is a ticket, not a lost cause.
 
 ### 5. Surface progress
 

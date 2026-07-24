@@ -214,6 +214,8 @@ This loop blocks the foreground; that's intentional. The orchestrator's concurre
 - If the current cwd is inside `.claude/worktrees/`, call `ExitWorktree` with `action: "remove"` to clean up. Otherwise leave the working tree as-is.
 - If this `/ship` was invoked by `/project-start`, notify the parent with the ticket id and merged status so it can release dependents.
 
+**Write `Done` before you stand down — never leave it for the orchestrator to reconcile later.** The most common status drift is a PR that merged via auto-merge while its `/ship` agent had already ended its turn (or was told to stop polling CI): the code is on `main` but Linear still says `In Review`. On "Monetize the AI creation flow", **5 of 10 tickets** drifted this way and needed orchestrator reconciliation at closeout — which only worked because the run reached closeout; a run that ended early would have left half the board wrong. The rule: if you armed auto-merge and are about to stand down *before* observing the merge land, set Linear `Done` **at arm time** with a comment noting "auto-merge armed; marking Done pre-emptively — revert if CI fails," rather than leaving the status write dependent on an observation you won't be present for. If you can cheaply wait for the merge and write `Done` after, do that instead. Either way the status write must not be orphaned by your own stand-down. (Orchestrator-side per-merge reconciliation stays as the backstop — but it is a backstop, not the primary path.)
+
 ### 8. Report
 
 Final line: `result: shipped <TICKET-ID> — PR #<N> merged`.
