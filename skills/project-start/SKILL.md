@@ -158,6 +158,22 @@ Two defenses, used together:
   ```
 
   Evidence this is load-bearing, not belt-and-suspenders: on the Behavioral/Calendar runs the orchestrator monitor caught **every** merge, and caught the one PR that was genuinely stranded (#651 — all checks green, auto-merge never armed, would have sat open indefinitely). Without it nothing in the DAG would have moved.
+
+  **But the `Monitor`-tool watch has itself been observed to go silent — treat it as best-effort, not the authoritative merge-detector.** On the Event-cover-images run, two persistent `Monitor`s over merged PRs never emitted, and the orchestrator idled **~7h between waves** until a human "stuck?" nudge; every merge had actually landed and been findable by a plain `gh pr view`. The reliable primitive is a **bounded `Bash run_in_background` until-loop that exits when all watched PRs are terminal** (one guaranteed completion notification), plus a `gh pr view` on each armed PR at every agent-completion checkpoint. Make the bounded waiter the primary merge-detector; the `Monitor` is at most a redundant tap.
+
+  ```bash
+  # bounded waiter — one guaranteed notification when all PRs go terminal
+  for i in $(seq 1 80); do            # 80 * 30s = 40min cap
+    done=1
+    for p in <pr numbers>; do
+      st=$(gh pr view $p --json state --jq '.state' 2>/dev/null || echo '?')
+      case "$st" in MERGED|CLOSED) ;; *) done=0;; esac
+    done
+    [ "$done" = 1 ] && { echo "all terminal"; exit 0; }
+    sleep 30
+  done
+  echo "TIMEOUT — some PRs still open"
+  ```
 - **On a green-but-open stall, resume the *owning* agent (`SendMessage`), don't merge it yourself bare.** The owning agent holds the review record; a message resumes it from its transcript and it completes review-confirmation + merge in one step. A bare `gh pr merge` from the orchestrator is correctly **blocked** when the PR has no documented review (see below) — and it should be. Reserve the orchestrator's own merge for when you have *first* produced the review record (e.g. via a dedicated review-then-merge agent), which is the right recovery when the owning agent is truly dead rather than merely idle.
 
 **Do not merge a PR on CI-green alone.** A green build is not a passed review. If a subagent's delivery stalled such that `/code-review` + `/security-review` never completed (common when the *delivery* sub-agent dies, e.g. during an infra outage), the PR has green CI and **no review record** — merging it there skips the one gate every other PR passed. The host may block the bare merge; that block is correct. Route it through an agent that runs the reviews scoped to `origin/main...<branch>` first, then merges.
@@ -197,6 +213,8 @@ The orchestrator *does* hold the Agent tool. So the orchestrator — not the sub
 
 Cost: one extra agent per ticket. Benefit, measured: three defects that would otherwise have shipped, one of them permanently unrecoverable. When `delivery.agent` is unspawnable this is the *only* independent check in the pipeline — treat it as mandatory, not belt-and-suspenders. If a run already merged PRs without this gate (e.g. because the DAG raced ahead), retro-review those merged PRs adversarially at closeout and file any findings as follow-up tickets — a merged defect is a ticket, not a lost cause.
 
+**Repo note — thesignup:** its configured `code-delivery-orchestrator` (`delivery.agent`) has **never** been spawnable from inside a `/start` subagent across multiple projects, so on this repo the orchestrator-spawned independent reviewer is *always* the only gate — never skip it. The gate has earned it: on the Event-cover-images run 2 of 6 PRs carried a BLOCKING defect that self-review missed and CI was green over (a cross-tenant blob-delete IDOR, and a draft cover leaking via og:image), both caught and fixed pre-merge.
+
 ### 5. Surface progress
 
 Each time the state changes (ticket completes, dependents released, new spawns), emit a one-line status:
@@ -230,6 +248,8 @@ When `running` and `ready` are both empty and at least one ticket merged, run th
   - If `state: "CLOSED"` (no merge) or no PR: leave as-is.
 
 This step is the safety net for the common drift pattern: `/start` subagent's PR auto-merges via GitHub but its final Linear-status update failed or was skipped. Without this, the orchestrator would falsely classify the ticket as paused and refuse to complete the project.
+
+**On thesignup this is the rule, not the exception.** The GitHub→Linear integration does **not** auto-advance a ticket on squash-merge here — on the Event-cover-images run all 6 tickets sat in `In Review` after their PRs merged and every one had to be reconciled to Done. Budget for reconciling *every* ticket each run on this repo, and don't read the universal `In Review` state as "nothing merged."
 
 **7.2 Pause/fail gate.** Re-count tickets after reconciliation:
 
