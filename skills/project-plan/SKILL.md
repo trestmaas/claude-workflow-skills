@@ -253,6 +253,14 @@ Example from project #2's first run (THE-247 + step tickets):
 
 This way THE-248/249/250/251 auto-serialize against each other (all touch `OrgWizardShell.tsx`) instead of racing.
 
+## A "model on existing X" instruction inherits X's bugs — spot-check the precedent first
+
+When a ticket tells an agent to clone or mirror an existing surface ("model on the org-logo route", "same pattern as the avatar upload"), the agent will faithfully reproduce it — **including any latent defect in the precedent.** A clone is only as safe as what it copies, and a security-relevant flaw propagates silently because the ticket *told* the agent to match.
+
+On the Event-cover-images project, SIGN-624 was scoped "model on `src/app/api/orgs/[id]/logo/route.ts`" and did exactly that — inheriting a cross-tenant blob-delete IDOR (a substring `includes()` tenant check bypassable via query string) that ships in the avatar and org-logo routes today. Independent review caught it in the new route, but the same bug lives on unreviewed in the precedent it was copied from (filed as a follow-up).
+
+So, before writing "model on X" into a ticket: **read X's security-relevant lines** — authz checks, tenant/ownership containment, input validation, path/URL parsing. If X has a flaw, either (a) point the ticket at a corrected pattern and note the fix in its ACs, or (b) file a follow-up ticket for X and tell the new ticket not to copy the flaw. Don't hand an agent a precedent you haven't vetted.
+
 ## Validate wiring tickets
 
 A "wiring" ticket is one that says "wire X into existing Y" or "integrate X with current Z" — its scope is to connect new code to surfaces that should already exist.
