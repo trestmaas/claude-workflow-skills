@@ -105,10 +105,27 @@ Document structure:
 
 ## Recommendations for next time
 
-<2–4 bullets. Pattern-spot across the signals above. Examples:>
+<2–4 bullets. Pattern-spot across the signals above.
+
+For each pattern, draft the narrow recommendation first — the one that just
+restates what happened — then widen it until it would still have been *wrong*
+had the signal come out differently. Ship the widest version that still fully
+accounts for what you saw. Stay between the two failure modes:
+
+- Too narrow: "drop concurrency to 2 for projects touching src/lib/db.ts."
+  True, but fires on almost no future project.
+- Too wide: "watch out for merge conflicts." Fires on everything, so it
+  changes nothing.
+- About right: "auto-sequence any file that appears in more than one ticket's
+  declared surface." Covers db.ts and everything like it, and is still
+  falsifiable — had the conflicts been in files each declared by a single
+  ticket, this wouldn't have been the fix.
+
+A recommendation that couldn't have come out differently isn't a finding.
+
+Examples:>
 - "Auth-related tickets keep drifting outside declared file surface — bake a check into /project-plan that prompts for cross-cutting paths."
 - "Tickets with >3 acceptance criteria had 2x the review iterations — consider splitting at planning time."
-- "Concurrency 3 caused two merge conflicts on src/lib/db.ts — that file is a hotspot; drop to 2 for projects touching it."
 ```
 
 ## Telemetry posture
