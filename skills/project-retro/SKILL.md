@@ -25,9 +25,9 @@ Optional `.claude/conventions.yaml` fields:
 
 ```yaml
 linear:
-  ticket_prefix: THE          # used to match branches like westmaas/the-219-... to project tickets
+  ticket_prefix: THE          # used to match branches like <login>/the-219-... to project tickets
 branch:
-  format: "westmaas/the-{id}-{slug}"   # used to identify PRs belonging to project tickets
+  format: "{user}/{prefix_lower}-{id}-{slug}"   # used to identify PRs belonging to project tickets; {user} = GitHub login
 ```
 
 ## Signals to gather

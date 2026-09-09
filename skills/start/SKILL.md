@@ -17,8 +17,9 @@ linear:
   status:
     in_progress: "In Progress"
 branch:
-  format: "westmaas/the-{id}-{slug}"
-  # Variables: {prefix} (uppercase), {prefix_lower}, {id} (numeric), {slug} (kebab-case)
+  format: "{user}/{prefix_lower}-{id}-{slug}"
+  # Variables: {user} (GitHub login of whoever runs the skill), {prefix} (uppercase),
+  # {prefix_lower}, {id} (numeric), {slug} (kebab-case)
   # Default: "{prefix_lower}-{id}-{slug}"
 test:
   command: "bun run test:run"
@@ -62,7 +63,7 @@ The ticket id (e.g. `THE-219`). Can be passed as argument or asked for if missin
 
 ### 4. Create the branch
 
-Apply the configured `branch.format` template (default: `{prefix_lower}-{id}-{slug}`). Generate `{slug}` from the ticket title (kebab-case, drop articles, max ~50 chars).
+Apply the configured `branch.format` template (default: `{prefix_lower}-{id}-{slug}`). Generate `{slug}` from the ticket title (kebab-case, drop articles, max ~50 chars). `{user}` is the GitHub login of whoever is running the skill — `gh api user --jq .login` — never a name copied from an example; a format that hardcodes one person's login gives every other developer misnamed branches.
 
 ```bash
 git checkout -b <branch-name>
@@ -90,6 +91,22 @@ So, before you call it done:
 - Name the capability your fix silently depends on — a viewport meta, a feature flag, a polyfill, a browser API, a CSS feature behind an opt-in, a header, an env var.
 - Ask: if that dependency were missing, would *any* of my tests fail? If the honest answer is no, **you have not tested the fix — you have tested that you typed it.**
 - Add the assertion that *can* fail: assert the served artifact (the meta tag, the computed value, the resolved pixel), not the source you just wrote.
+
+**Then check that no fixture hands your test its own answer.**
+
+A function with a fallback is green whether it reads its input or ignores it entirely — *if every fixture happens to use the fallback's value*. The test looks like it proves a read; it proves nothing.
+
+**Rule: when a function has a default or fallback, no fixture may use that value.** Pick a fixture that differs from the default, or the assertion is satisfied by construction.
+
+Cover-image-cropper hit this shape three times in one project:
+
+- `coverDefaults` fell back to `'16:9'` and **every** fixture used `'16:9'`. Hardcoding the fallback and stripping the validation entirely left **all 924 component tests green**. Two fixtures at `4:3` and `1:1` killed it — and both were needed, because "reads *a* value" and "reads *the* value" differ by exactly one hardcoded string.
+- An edge-ring colour sampler was tested against a fixture uniform enough that a corners-only implementation (16 pixels instead of 176) passed every case.
+- A float assertion loosened to `toBeCloseTo(0, 10)` swallowed a `5.68e-14` that was the bug — and the fixture width happened to be one of the exact-integer values where the noise doesn't appear.
+
+The generalisation: **any input whose value coincides with the code's own default, constant, or degenerate case is an untrustworthy fixture.** Also covers a zero-size grid, a square image where the ratio is 1, and a zoom of 1 where the pan range is exactly zero — all of which produced a passing-but-vacuous assertion in that project.
+
+The cheap check is a mutation: change the constant, break the branch, delete the read. If nothing goes red, the fixture chose your answer for you.
 
 Commit: `tests: failing tests for <TICKET-ID>`.
 
@@ -121,6 +138,30 @@ If either is missing, you haven't finished the ticket — add the import + rende
 This catches the "components shipped but never composed" class. Project #3 of the Org UX initiative shipped THE-258 (`SidebarOrgSwitcher`) and THE-259 (`SidebarOrgSections`) as separate components — but `SettingsSidebar.tsx` never imported or rendered them. Unit tests passed (each component had its own), types passed (no caller, no error), individual PR reviews looked fine. The bug only surfaced when a user opened the page and saw a half-built sidebar. Fixed in THE-288 after the fact.
 
 Like the deletion guard, this is a separate explicit step rather than a side-effect of implementation, because the failure mode is silent — tests stay green when a parent doesn't compose its declared children.
+
+### 6c. Locator guard — before inserting into a shared rendered region
+
+The mirror of the composition guard. That one catches a child that was never mounted; this one catches a child that was mounted **into a region other tests already reach into**.
+
+If your change adds an element inside a region that existing tests query — a component another spec locates within, a container carrying a `data-testid`, a dialog wrapping something already asserted on — then **before writing the code**, enumerate what reaches in there:
+
+```
+grep -rn "<region-testid>" e2e/ src/ --include=*.spec.ts --include=*.test.tsx
+```
+
+For each hit, decide which it is:
+
+1. **Survives** — scoped tightly enough that your insertion is invisible to it.
+2. **Needs rewriting** — the element it names moves or is replaced by a different one.
+3. **Needs a step, not a rewrite** — the locator is still correct but the element is no longer *reachable* at that point (e.g. wrapped in a dialog that must be opened first; a portal that now renders outside the container being queried).
+
+Category 3 is the one that reads like category 1 and isn't.
+
+Then add the assertion that makes the next insertion fail *locally*: pin the count of whatever the region is supposed to hold ("exactly one non-decorative image"), rather than leaving the next author to discover it in a browser run.
+
+**Why this is worth doing before the code rather than after the red CI:** in cover-image-cropper the same e2e spec broke **twice**, from two different tickets, each time because an insertion turned a `locator("img")` into a strict-mode violation matching three elements. Each discovery cost a full ~11-minute browser cycle, and neither was visible to the unit lane, typecheck, or a diff review. The third ticket to touch that region was handed the enumeration up front — ten locators, split across the three categories above — and its e2e passed on the **first** cycle. Same class of change, one cheap grep, measurably different outcome.
+
+Note the two shapes that make a locator silently wrong rather than loudly broken: a query that matches *more* than it did (strict mode fails loudly — good) and a query that can no longer *reach* its target (times out, or matches zero and passes a `toHaveCount(0)` that was meant to prove absence — bad).
 
 ### 7. Deletion guard
 

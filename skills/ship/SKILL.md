@@ -43,7 +43,7 @@ If no `.claude/conventions.yaml` exists, infer everything. Surface what you infe
 
 ## Preconditions
 
-- Current branch name contains the configured `ticket_prefix-<id>` (e.g. `westmaas/the-219-...` or `THE-219-feature`).
+- Current branch name contains the configured `ticket_prefix-<id>` (e.g. `<github-login>/the-219-...` or `THE-219-feature`).
 - At least one test file was added or modified. If no test changed, **pause** with `needs input:` — every ship goes out with tests.
 - All intended changes are committed locally.
 
@@ -68,6 +68,24 @@ Run the configured `gate:` commands sequentially. If unconfigured, auto-detect:
 If any step fails:
 - Report which step failed and the relevant error output.
 - **Pause** with `needs input:` — do not push, do not auto-fix without confirmation. The gate failing usually means something real.
+
+**Read the gate's own exit code. Never let a wrapper's status stand in for it.**
+
+Every one of these reports success while the gate is failing underneath, and each cost a real false-green in one project:
+
+| Written as | Whose exit code you actually read |
+| -- | -- |
+| `bun run verify:ci \| tail -40` | `tail`'s — always 0 |
+| `bun run verify:ci; echo "EXIT=$?"` | `echo`'s — always 0 |
+| `bun run verify:ci > log 2>&1 &` then reading the log | the *shell*'s, not the job's |
+
+The first two are the dangerous ones, because the output you read looks exactly like a passing run — the failing lines scrolled past, or the `EXIT=` line reports the echo that printed it. One agent declared a passed gate this way and had a genuine typecheck failure in its own new test; another reported a green run whose real exit was 2.
+
+Safe forms: run it bare and read the tool's own reported exit; or `set -o pipefail` if you must pipe; or capture with `bun run verify:ci; rc=$?; …; exit $rc`. If you need to shorten the output, redirect to a file and grep the file — but take the exit code from the command, not from the grep.
+
+**Also count the gate's steps rather than trusting a remembered number.** Read the `gate:` chain out of `.claude/conventions.yaml` or `package.json` at run time and say how many you ran. In cover-image-cropper `verify:ci` grew from **9 steps to 12** over a single day as unrelated work landed; an agent trusting a number from its brief silently under-ran the gate and still reported it passed.
+
+**And distinguish a crashed runner from a failing test.** A summary reading "N fail" with **zero** per-test failure lines, alongside N× a runner-level error (`EEXIST: epoll_ctl`, `Cannot call describe() after the test run has completed`), is the test runner falling over — not your code. Report it and re-run; do not chase it. Likewise a bare `exit 133` (SIGTRAP) with no output can be the *reporter* crashing while serializing a failure value — a real assertion failure wearing a crash costume. Count matches (`queryAllByRole(...).length`) instead of handing a DOM node to `expect(node).toBeNull()`, which is what triggers it.
 
 ### 3. Push
 

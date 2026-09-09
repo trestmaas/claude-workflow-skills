@@ -12,9 +12,11 @@ linear:
     done: "Done"
 
 branch:
-  # Variables: {prefix} (THE), {prefix_lower} (the), {id} (numeric), {slug}
+  # Variables: {user} (GitHub login of whoever runs the skill — `gh api user --jq .login`),
+  # {prefix} (THE), {prefix_lower} (the), {id} (numeric), {slug}
   # Default: "{prefix_lower}-{id}-{slug}"
-  format: "westmaas/the-{id}-{slug}"
+  # Use {user} rather than a literal login so the same file works for every developer.
+  format: "{user}/{prefix_lower}-{id}-{slug}"
 
 # Commands run sequentially as the pre-push gate. Each must pass.
 # Default: auto-detect package manager from lockfile + run available scripts.

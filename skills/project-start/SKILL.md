@@ -116,7 +116,7 @@ while ready or running:
 
 **Verify every subagent's merge claim via `gh` — don't trust the report alone. This is mandatory, not belt-and-suspenders.** The `/start` subagent's final message is meant to end with `result: shipped <TICKET-ID> — PR #<N> merged`, but in practice subagents return without merging, without reviewing, or without knowing they failed. The orchestrator can't tell merged from "almost merged" from the text alone. So after each subagent returns:
 
-1. Extract the branch name (per the configured `branch.format` from `.claude/conventions.yaml`, or pull from Linear ticket's `gitBranchName`).
+1. Extract the branch name (per the configured `branch.format` from `.claude/conventions.yaml` — `{user}` there is the GitHub login, `gh api user --jq .login` — or pull from Linear ticket's `gitBranchName`).
 2. Run `gh pr list --head <branch> --state all --json number,state,mergedAt --limit 1`. Parse:
    - `state: "MERGED"` (and `mergedAt` populated) → confirmed merged. Mark Done, release dependents.
    - `state: "OPEN"` → **belt-and-suspenders auto-merge — but only if the subagent reported `result:` (merge intended, delivery fumbled).** Run `gh pr merge <N> --auto --squash` defensively (retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error). Then wait briefly (~10s) and re-check state. If now MERGED → mark Done. If still OPEN → **pause** with note "<TICKET-ID> subagent returned without merge; PR #<N> still open. Auto-merge queued; check CI."
@@ -208,6 +208,18 @@ The orchestrator *does* hold the Agent tool. So the orchestrator — not the sub
 
 1. When a `/start` subagent reports its PR is up with the gate green, do **not** let it arm auto-merge as the final step. Instruct subagents (in their spawn prompt) to push, open the PR, run the gate, set Linear In Review, and **stop without arming** — then report the PR number.
 2. Spawn a **fresh** `general-purpose` agent (NOT `run_in_background`-coupled to the author; a clean context that did not write the code) as a read-only reviewer: "you did not write this, find what its author missed." Point it at the PR's actual risk surface and tell it to distinguish BLOCKING from "I'd have done it differently." Have it end with a single `VERDICT:` line.
+
+   **Brief the reviewer on the NEIGHBOURS, not just the diff.** This is the part that does the work, and it is the orchestrator's alone — only it knows what the other twelve tickets did. A reviewer confined to the diff re-checks what the author already checked; the defects that survive self-review live in the *seams*. Put in the brief:
+
+   - **What downstream tickets consume from this PR**, and what they'll assume about it — the shape, the units, the invariants.
+   - **What this PR consumes from already-merged tickets**, with the contract stated so the reviewer can catch a violated assumption rather than re-derive it.
+   - **Any control this PR unlocks whose storage or consumer lands in a different ticket** — the classic gap, because the diff is correct and the product is wrong.
+   - **Claims the author volunteered** ("this is unreachable", "behaviour identical", "I verified X"), each marked *verify, don't accept*. Authors are usually right and occasionally wrong in exactly the place they felt the need to reassure you.
+   - **Anything you told the author that turned out to be wrong**, so the reviewer can adjudicate rather than inherit your error.
+
+   Evidence this is the load-bearing half: on cover-image-cropper all three BLOCKING defects were **correct from inside their own file surface**. A `panOf` helper returned a saturated pan for float-noise inputs — fine in isolation, poison to the two tickets that persist and replay it. A ratio picker shipped live while its storage was still a bare string in a *different* ticket, so choosing 4:3 uploaded that crop and silently re-cropped it to 16:9. A preview painted one colour while the save stored another. Diff-scoped review finds none of these. Neighbour-scoped review found all three.
+
+   Corollary: when the reviewer's finding contradicts something you told the author, **say so plainly and carry the correction forward**. Twice on that run the orchestrator's own briefing was the wrong half — an assumed type-system guarantee that didn't exist, and a "functionally harmless" framing of a comment that was in fact taking the entire stylesheet down.
 3. **Verify the fix, don't trust the report.** If the reviewer finds a blocking defect, `SendMessage` the *owning* agent with the finding; when it reports fixed, read the diff yourself before arming.
 4. Only arm auto-merge (`gh pr merge <N> --auto --squash`) once the independent review is clean **or** its findings are fixed and verified. This deliberately serializes review before merge instead of merging-then-reviewing.
 

@@ -298,6 +298,23 @@ The multi-calendar project planned a `calendar_connections` table, a ticket to c
 
 > **For every table or persisted entity the plan introduces, walk its full lifecycle and name the owning ticket for each step: who CREATES a row, who UPDATES it, who DELETES it.** If any step has no owner, you have found a hole — fill it at plan time. Pay special attention to rows created as a side-effect of a flow you don't control (an OAuth redirect, a webhook, a third-party callback): those are exactly the ones with no natural home, which is why they end up with none.
 
+**4. A capability built before its storage, with nothing scheduling the join.**
+
+The checks above ask who produces a field and who writes a row. None asks *when a control becomes reachable relative to the thing that persists what it produces* — and a plan can pass all three while shipping a feature that is either inert or actively wrong for the window between two merges.
+
+Cover-image-cropper split "rewrite the cropper" (which owns the ratio picker) from "wire the create wizard" and "wire the edit page" (which own the field that stores a chosen ratio). Correct decomposition. But the picker defaults **on**, so the moment the cropper merged, an organizer could pick 1:1 — and the wizard, still typing that field as a bare string, dropped the choice and re-cropped their image to 16:9, losing ~44% of its height. Every ticket's tests passed. The defect existed only in the *interval*.
+
+The author caught it in review and shipped a `showRatioPicker={false}` stopgap at both call sites, with source comments naming the two successors. That worked — but only because the orchestrator hand-carried "remove this" into both later briefs. **Nothing in `tickets.yaml` encoded it.** Had either brief omitted it, the project would have merged 13/13 green with its headline capability permanently disabled, and every test would still have passed, because the tests were written against the stopgap.
+
+> **When one ticket exposes a capability whose storage or consumer lands in another, decide at plan time which of these you want, and write it down:**
+>
+> - **Sequence it** — make the storage ticket a `depends_on` of the ticket that exposes the control, so the interval never exists. Cheapest when the DAG allows it.
+> - **Ship it dark** — the exposing ticket defaults the control off, and **the successor carries "remove the `<flag>` stopgap and invert the guard test asserting it is absent" as an explicit acceptance criterion.** Not a code comment. A criterion, on the named ticket, in `tickets.yaml`.
+>
+> A stopgap recorded only in source is a promise no check can keep. And note the second half of that criterion: a guard test asserting the control is *absent* must be **inverted, not deleted**, or the successor can satisfy its AC by removing the evidence.
+
+The general form, worth applying beyond feature flags: **any deliberate temporary state one ticket leaves for another to clean up is scope that belongs to the successor's acceptance criteria.** Dead code awaiting a consumer, a widened type awaiting a narrowing, a duplicated constant awaiting extraction — same shape, same failure mode.
+
 ## Be careful when an acceptance criterion mandates literal copy
 
 Quoting exact user-facing strings in ACs is good — it makes them testable, and it stops N parallel agents each inventing their own wording. But a quoted string is not just copy: it silently imports **a format, a convention, and a set of assumptions** into the ticket, and those can contradict another criterion in the same plan without anyone noticing.
