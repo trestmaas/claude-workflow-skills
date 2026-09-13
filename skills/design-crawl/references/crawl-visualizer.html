@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design crawl — review</title>
+<style>
+  :root {
+    --bg:#f7f7f8; --card:#fff; --ink:#18181b; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#16a085; --keep:#16a085; --redesign:#e0533d; --unsure:#b7791f;
+    --blocker:#dc2626; --high:#ea580c; --medium:#ca8a04; --low:#6b7280; --note:#9ca3af;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f0f11; --card:#1a1a1e; --ink:#e7e7ea; --muted:#9ca3af; --line:#2a2a30; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { position:sticky; top:0; z-index:5; background:var(--card); border-bottom:1px solid var(--line);
+           padding:12px 20px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; font-weight:650; }
+  header .sub { color:var(--muted); font-size:12px; }
+  header .spacer { flex:1; }
+  .progress { font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px; }
+  button { font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--card);
+           color:var(--ink); border-radius:7px; padding:6px 12px; transition:filter .1s, transform .05s; }
+  button:hover { filter:brightness(.97); } button:active { transform:scale(.97); }
+  button.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .tabs { display:flex; gap:4px; }
+  .tab.active { background:var(--accent); color:#fff; border-color:transparent; }
+  main { padding:20px; max-width:1100px; margin:0 auto; }
+  .view-head h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+                  border-bottom:1px solid var(--line); padding-bottom:6px; margin:0 0 16px; }
+  .empty-note { color:var(--muted); font-style:italic; }
+
+  /* ---- gallery ---- */
+  .flow { margin-bottom:32px; }
+  .flow > h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+               border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; }
+  .screen { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden;
+            display:flex; flex-direction:column; }
+  .screen.done { border-color:var(--accent); }
+  .shot { background:#00000010; max-height:280px; overflow:auto; }
+  .shot img { width:100%; display:block; }
+  .meta { padding:10px 12px; }
+  .meta .job { font-weight:600; }
+  .meta .tags { color:var(--muted); font-size:12px; margin-top:2px; }
+  .sev { display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+         padding:1px 6px; border-radius:4px; color:#fff; margin-left:6px; }
+  ul.obs { margin:8px 0 0; padding-left:16px; font-size:12.5px; color:var(--ink); }
+  ul.obs:empty::after { content:"No observations — looks clean."; color:var(--muted); font-style:italic; }
+  .controls { border-top:1px solid var(--line); padding:10px 12px; margin-top:auto; }
+  .verdicts { display:flex; gap:6px; }
+  .verdicts label { flex:1; text-align:center; font-size:12px; padding:5px 0; border:1px solid var(--line);
+                    border-radius:6px; cursor:pointer; user-select:none; }
+  .verdicts input { display:none; }
+  .verdicts input:checked + span { font-weight:700; }
+  label.keep input:checked ~ span { color:var(--keep); }
+  label.redesign input:checked ~ span { color:var(--redesign); }
+  label.unsure input:checked ~ span { color:var(--unsure); }
+  .verdicts label:has(input:checked) { border-width:2px; padding:4px 0; }
+  label.keep:has(input:checked) { border-color:var(--keep); }
+  label.redesign:has(input:checked) { border-color:var(--redesign); }
+  label.unsure:has(input:checked) { border-color:var(--unsure); }
+  textarea { width:100%; margin-top:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg);
+             color:var(--ink); padding:6px 8px; font:inherit; resize:vertical; min-height:38px; }
+
+  /* ---- shared thumbnail ---- */
+  .thumb { height:64px; width:auto; max-width:120px; border:1px solid var(--line); border-radius:6px;
+           cursor:zoom-in; vertical-align:top; margin:2px; object-fit:cover; background:#00000010; }
+  .thumb:hover { filter:brightness(.95); border-color:var(--accent); }
+
+  /* ---- surface matrix ---- */
+  .matrix-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+  table.matrix { border-collapse:collapse; width:100%; }
+  table.matrix th, table.matrix td { border:1px solid var(--line); padding:8px; vertical-align:top; text-align:left; }
+  table.matrix thead th { position:sticky; top:57px; background:var(--card); z-index:1; }
+  th.corner { font-size:11px; color:var(--muted); font-weight:600; white-space:nowrap; }
+  .surf-chip { display:inline-block; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:5px; }
+  th.job-cell { background:var(--card); min-width:160px; }
+  .job-name { font-weight:600; }
+  tr.multi td, tr.multi th.job-cell { background:color-mix(in srgb, var(--unsure) 13%, var(--card)); }
+  .multi-tag { display:inline-block; margin-top:4px; font-size:10px; font-weight:700; text-transform:uppercase;
+               letter-spacing:.04em; color:var(--unsure); border:1px solid var(--unsure); border-radius:4px; padding:1px 5px; }
+  td.empty { text-align:center; } .dash { color:var(--muted); opacity:.5; }
+
+  /* ---- findings ---- */
+  .findings { margin-bottom:32px; }
+  .inc-card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .inc-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .inc-head .summary { font-weight:600; }
+  .thumb-strip { margin-top:10px; display:flex; flex-wrap:wrap; gap:2px; }
+  .worst-row { display:flex; gap:14px; background:var(--card); border:1px solid var(--line);
+               border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .worst-thumb { height:90px; max-width:150px; flex:none; }
+  .worst-body { flex:1; min-width:0; }
+  .worst-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .worst-head .job { font-weight:600; }
+  .worst-head .tags { color:var(--muted); font-size:12px; }
+
+  /* ---- dialogs ---- */
+  dialog { border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--ink);
+           max-width:760px; width:92%; padding:0; }
+  dialog::backdrop { background:#0008; }
+  dialog .dhead { display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line); }
+  dialog h3 { margin:0; font-size:14px; flex:1; }
+  dialog pre { margin:0; padding:16px 18px; white-space:pre-wrap; word-break:break-word; font:12.5px/1.55
+               ui-monospace,SFMono-Regular,Menlo,monospace; max-height:60vh; overflow:auto; }
+  #lightbox { max-width:900px; }
+  #lightbox img { width:100%; display:block; max-height:60vh; object-fit:contain; background:#00000010; }
+  #lightbox .lbmeta { padding:12px 18px; }
+  #lightbox .lbmeta .tags { color:var(--muted); font-size:12px; margin-top:4px; }
+  .filters { display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); }
+  select { font:inherit; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); padding:4px 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1 id="title">Design crawl</h1><div class="sub" id="subtitle"></div></div>
+  <nav class="tabs">
+    <button class="tab active" data-view="gallery">Gallery</button>
+    <button class="tab" data-view="matrix">Surface matrix</button>
+    <button class="tab" data-view="findings">Findings</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="filters" id="filters">
+    <label>show <select id="filter">
+      <option value="all">all screens</option>
+      <option value="flagged">with observations</option>
+      <option value="unreviewed">not yet reviewed</option>
+      <option value="redesign">marked redesign</option>
+    </select></label>
+  </div>
+  <div class="progress" id="progress"></div>
+  <button id="downloadBtn">Download feedback.json</button>
+  <button class="primary" id="promptBtn">Generate Claude Design prompt</button>
+</header>
+<main id="main"></main>
+
+<dialog id="promptDlg">
+  <div class="dhead">
+    <h3>Claude Design prompt</h3>
+    <button id="copyBtn">Copy</button>
+    <button onclick="promptDlg.close()">Close</button>
+  </div>
+  <pre id="promptText"></pre>
+</dialog>
+
+<dialog id="lightbox">
+  <div class="dhead">
+    <h3 id="lbTitle"></h3>
+    <button onclick="lightbox.close()">Close</button>
+  </div>
+  <img id="lbImg" alt="" />
+  <div class="lbmeta">
+    <div id="lbBadge"></div>
+    <div class="tags" id="lbTags"></div>
+    <ul class="obs" id="lbObs"></ul>
+  </div>
+</dialog>
+
+<script>
+const MANIFEST = /*__MANIFEST__*/ {};
+const KEY = "design-crawl:" + (MANIFEST.app || "app") + ":" + (MANIFEST.captured || "");
+const state = JSON.parse(localStorage.getItem(KEY) || "{}"); // { file: {verdict, note} }
+const SEV = { blocker:"--blocker", high:"--high", medium:"--medium", low:"--low", note:"--note" };
+const SEV_ORDER = { blocker:0, high:1, medium:2, low:3, note:4 };
+const SURFACE_COLORS = ["#6366f1","#0ea5e9","#f59e0b","#ec4899","#14b8a6","#8b5cf6","#ef4444","#22c55e"];
+const byFile = {}; (MANIFEST.screens||[]).forEach(s => { byFile[s.file] = s; });
+const severityRank = sev => SEV_ORDER[sev] ?? 99;
+let view = "gallery";
+
+const $ = (s, r=document) => r.querySelector(s);
+const el = (t, props={}, kids=[]) => { const n=document.createElement(t); Object.assign(n, props);
+  for (const [k,v] of Object.entries(props.dataset||{})) n.dataset[k]=v;
+  (Array.isArray(kids)?kids:[kids]).forEach(k=>k!=null&&n.append(k)); return n; };
+
+const sevBadge = sev => sev
+  ? el("span", { className:"sev", textContent:sev, style:`background:var(${SEV[sev]||"--note"})` })
+  : null;
+
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); renderProgress(); }
+
+function renderProgress(){
+  const total = MANIFEST.screens.length;
+  const done = MANIFEST.screens.filter(s => state[s.file]?.verdict).length;
+  $("#progress").textContent = `${done} / ${total} reviewed`;
+}
+
+// ---- shared thumbnail + lightbox ----
+function thumb(s){
+  const t = el("img", { className:"thumb", src:s.file, loading:"lazy",
+    alt:s.job||s.file, title:(s.job||s.step||s.file) });
+  t.onclick = () => openLightbox(s);
+  return t;
+}
+function openLightbox(s){
+  $("#lbImg").src = s.file; $("#lbImg").alt = s.job||s.file;
+  $("#lbTitle").textContent = s.job || s.step || s.file;
+  $("#lbTags").textContent = [s.flow, s.viewport, s.surface, s.persona].filter(Boolean).join(" · ");
+  const bwrap = $("#lbBadge"); bwrap.innerHTML = ""; const b = sevBadge(s.severity); if (b) bwrap.append(b);
+  const ul = $("#lbObs"); ul.innerHTML = "";
+  (s.observations||[]).forEach(o => ul.append(el("li",{textContent:o})));
+  $("#lightbox").showModal();
+}
+
+// ---- gallery view ----
+function screenCard(s){
+  const st = state[s.file] || {};
+  const card = el("div", { className:"screen" + (st.verdict?" done":"") });
+  const shot = el("div", { className:"shot" }, el("img", { src:s.file, loading:"lazy", alt:s.job||s.file }));
+  const meta = el("div", { className:"meta" }, [
+    el("div", { className:"job" }, [document.createTextNode(s.job || s.step || s.file), sevBadge(s.severity)].filter(Boolean)),
+    el("div", { className:"tags", textContent:[s.flow, s.viewport, s.surface].filter(Boolean).join(" · ") }),
+    (()=>{ const ul=el("ul",{className:"obs"}); (s.observations||[]).forEach(o=>ul.append(el("li",{textContent:o}))); return ul; })()
+  ]);
+  const controls = el("div", { className:"controls" });
+  const verdicts = el("div", { className:"verdicts" });
+  [["keep","Keep"],["redesign","Redesign"],["unsure","Not sure"]].forEach(([v,label])=>{
+    const inp = el("input", { type:"radio", name:"v-"+s.file, value:v, checked:st.verdict===v });
+    inp.onchange = () => { state[s.file] = { ...(state[s.file]||{}), verdict:v }; card.classList.add("done"); save(); };
+    verdicts.append(el("label", { className:v }, [inp, el("span",{textContent:label})]));
+  });
+  const note = el("textarea", { placeholder:"Design direction (optional) — what should change, or why keep it", value:st.note||"" });
+  note.oninput = () => { state[s.file] = { ...(state[s.file]||{}), note:note.value }; localStorage.setItem(KEY, JSON.stringify(state)); };
+  controls.append(verdicts, note);
+  card.append(shot, meta, controls);
+  card.dataset.file = s.file; card.dataset.flagged = (s.observations||[]).length ? "1":"0";
+  return card;
+}
+
+function renderGallery(main){
+  const filter = $("#filter").value;
+  const groups = {};
+  MANIFEST.screens.forEach(s => { (groups[s.flow||"other"] ||= []).push(s); });
+  for (const [flow, screens] of Object.entries(groups)){
+    const vis = screens.filter(s => {
+      const st = state[s.file]||{};
+      if (filter==="flagged") return (s.observations||[]).length;
+      if (filter==="unreviewed") return !st.verdict;
+      if (filter==="redesign") return st.verdict==="redesign";
+      return true;
+    });
+    if (!vis.length) continue;
+    const grid = el("div",{className:"grid"}); vis.forEach(s=>grid.append(screenCard(s)));
+    main.append(el("div",{className:"flow"},[el("h2",{textContent:flow}), grid]));
+  }
+}
+
+// ---- surface matrix view ----
+function renderMatrix(main){
+  // Columns = surfaces actually present, in order of first appearance.
+  const surfaces = [];
+  MANIFEST.screens.forEach(s => { const su = s.surface||"none"; if (!surfaces.includes(su)) surfaces.push(su); });
+  const surfColor = su => SURFACE_COLORS[surfaces.indexOf(su) % SURFACE_COLORS.length];
+
+  // Rows = jobs, each holding the screens per surface.
+  const jobs = new Map();
+  MANIFEST.screens.forEach(s => {
+    const j = s.job || s.step || "(unlabeled)";
+    if (!jobs.has(j)) jobs.set(j, { surfaces:new Set(), cells:{} });
+    const row = jobs.get(j); const su = s.surface||"none";
+    row.surfaces.add(su); (row.cells[su] ||= []).push(s);
+  });
+  // Sort by how many surfaces a job spans, descending — the widest spread on top.
+  const rows = [...jobs.entries()].sort((a,b) => b[1].surfaces.size - a[1].surfaces.size);
+
+  main.append(el("div",{className:"view-head"}, el("h2",{textContent:"Surface matrix — where each job shows up"})));
+
+  const table = el("table", { className:"matrix" });
+  const hrow = el("tr", {}, el("th",{className:"corner",textContent:"job \\ surface"}));
+  surfaces.forEach(su => hrow.append(el("th",{className:"surf-col"},
+    el("span",{className:"surf-chip",textContent:su,style:`background:${surfColor(su)}`}))));
+  const tbody = el("tbody");
+  rows.forEach(([job,row]) => {
+    const multi = row.surfaces.size > 1;
+    const tr = el("tr", { className: multi ? "multi":"" });
+    tr.append(el("th",{className:"job-cell"}, [
+      el("div",{className:"job-name",textContent:job}),
+      multi ? el("span",{className:"multi-tag",textContent:row.surfaces.size+" surfaces"}) : null
+    ].filter(Boolean)));
+    surfaces.forEach(su => {
+      const screens = row.cells[su];
+      if (screens) { const td = el("td"); screens.forEach(s => td.append(thumb(s))); tr.append(td); }
+      else tr.append(el("td",{className:"empty"}, el("span",{className:"dash",textContent:"—"})));
+    });
+    tbody.append(tr);
+  });
+  table.append(el("thead",{},hrow), tbody);
+  main.append(el("div",{className:"matrix-wrap"}, table));
+}
+
+// ---- findings view ----
+function renderFindings(main){
+  // 1. Emergent clusters — driven entirely off inconsistencies[].
+  const incWrap = el("div",{className:"findings"});
+  incWrap.append(el("div",{className:"view-head"}, el("h2",{textContent:"Inconsistencies"})));
+  const incs = (MANIFEST.inconsistencies||[]).slice().sort((a,b)=>severityRank(a.severity)-severityRank(b.severity));
+  if (!incs.length) incWrap.append(el("p",{className:"empty-note",textContent:"No clustered inconsistencies in the manifest."}));
+  incs.forEach(i => {
+    const card = el("div",{className:"inc-card"});
+    card.append(el("div",{className:"inc-head"}, [
+      el("span",{className:"summary",textContent:i.summary||"(unnamed)"}), sevBadge(i.severity)
+    ].filter(Boolean)));
+    const strip = el("div",{className:"thumb-strip"});
+    (i.evidence||[]).forEach(f => { const s = byFile[f]; if (s) strip.append(thumb(s)); });
+    if (strip.children.length) card.append(strip);
+    incWrap.append(card);
+  });
+  main.append(incWrap);
+
+  // 2. Every blocker/high screen, worst-first, with its observations + a thumbnail.
+  const worst = MANIFEST.screens.filter(s => s.severity==="blocker" || s.severity==="high")
+    .sort((a,b) => severityRank(a.severity) - severityRank(b.severity));
+  const wWrap = el("div",{className:"findings"});
+  wWrap.append(el("div",{className:"view-head"}, el("h2",{textContent:"Blocker & high-severity screens"})));
+  if (!worst.length) wWrap.append(el("p",{className:"empty-note",textContent:"No blocker or high-severity screens."}));
+  worst.forEach(s => {
+    const t = thumb(s); t.classList.add("worst-thumb");
+    const body = el("div",{className:"worst-body"}, [
+      el("div",{className:"worst-head"}, [
+        el("span",{className:"job",textContent:s.job||s.step||s.file}), sevBadge(s.severity),
+        el("span",{className:"tags",textContent:[s.flow,s.viewport,s.surface].filter(Boolean).join(" · ")})
+      ].filter(Boolean)),
+      (()=>{ const ul=el("ul",{className:"obs"}); (s.observations||[]).forEach(o=>ul.append(el("li",{textContent:o}))); return ul; })()
+    ]);
+    wWrap.append(el("div",{className:"worst-row"}, [t, body]));
+  });
+  main.append(wWrap);
+}
+
+// ---- view dispatch ----
+function render(){
+  $("#title").textContent = (MANIFEST.app||"Design crawl") + " — review";
+  $("#subtitle").textContent = [MANIFEST.url, MANIFEST.captured, (MANIFEST.flows||[]).join(", ")].filter(Boolean).join("  ·  ");
+  $("#filters").style.display = view==="gallery" ? "" : "none";
+  const main = $("#main"); main.innerHTML = "";
+  if (view==="matrix") renderMatrix(main);
+  else if (view==="findings") renderFindings(main);
+  else renderGallery(main);
+  renderProgress();
+}
+$("#filter").onchange = render;
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    view = t.dataset.view;
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x===t));
+    render();
+  };
+});
+
+// ---- Claude Design prompt generation ----
+function buildPrompt(){
+  const inc = (MANIFEST.inconsistencies||[]).map(i => `  — [${i.severity||"note"}] ${i.summary}`).join("\n") || "  (none clustered)";
+  const fb = MANIFEST.screens.filter(s => state[s.file]?.verdict)
+    .map(s => { const st=state[s.file]; const note = st.note?.trim() ? ` — "${st.note.trim()}"` : "";
+      return `  — ${s.file} — ${st.verdict.toUpperCase()}${note}`; }).join("\n") || "  (no screens marked yet — mark Keep/Redesign above)";
+  const flows = (MANIFEST.flows||[]).join(", ");
+  const vps = Object.values(MANIFEST.viewports||{}).join(" and ");
+  return `I'm redesigning parts of ${MANIFEST.app} (${MANIFEST.url}). I ran a design crawl — screenshots of every screen across ${flows} at ${vps} — and reviewed each one. This is an exploration, not a spec: I want you to design the fix, not confirm mine.
+
+WHAT THE CRAWL FOUND (surfaced from the screens, ranked by user impact):
+${inc}
+
+MY DIRECTION, PER SCREEN (Keep = leave it, Redesign = change it):
+${fb}
+
+CONSTRAINTS (respect these; ask if any block you):
+  — Stay within the existing design system / component library.
+  — Mobile-first; every control reachable at the smallest viewport.
+  — Don't introduce new dependencies.
+
+WHAT I WANT BACK:
+1. For each REDESIGN screen: a concrete proposal — layout, states, interaction — with a short rationale tied to what the crawl showed.
+2. Where several screens share one underlying inconsistency, one coherent rule that resolves all of them, not per-screen patches.
+3. Call out any tradeoff rather than silently picking.
+4. Leave KEEP screens alone unless a change is load-bearing for a fix — and say why.
+
+Attached: the crawl screenshots and manifest.json. Work from the actual screens.`;
+}
+$("#promptBtn").onclick = () => { $("#promptText").textContent = buildPrompt(); $("#promptDlg").showModal(); };
+$("#copyBtn").onclick = async () => { try { await navigator.clipboard.writeText($("#promptText").textContent);
+  $("#copyBtn").textContent = "Copied"; setTimeout(()=>$("#copyBtn").textContent="Copy", 1500); } catch {} };
+$("#downloadBtn").onclick = () => {
+  const out = { app:MANIFEST.app, captured:MANIFEST.captured, feedback:state };
+  const blob = new Blob([JSON.stringify(out,null,2)], {type:"application/json"});
+  const a = el("a",{href:URL.createObjectURL(blob), download:"design-crawl-feedback.json"}); a.click();
+};
+
+render();
+</script>
+</body>
+</html>

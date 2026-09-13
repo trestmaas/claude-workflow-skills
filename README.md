@@ -75,9 +75,12 @@ The novel field is `files:` — declaring expected file surface lets `/project-s
 ```bash
 git clone https://github.com/trestmaas/claude-workflow-skills.git
 cp -r claude-workflow-skills/skills/* ~/.claude/skills/
+mkdir -p ~/.claude/agents && cp claude-workflow-skills/agents/* ~/.claude/agents/
 ```
 
-Reload Claude Code; the five `/` commands appear in your skills list.
+Reload Claude Code; the `/` commands appear in your skills list. The second `cp` installs the `code-delivery-orchestrator` subagent that `/ship` hands finished PRs to — without it `/ship` silently falls back to inline self-review, so a repo whose `conventions.yaml` names that agent is only getting independent review on machines that installed it.
+
+`skills/design-crawl` ships alongside: a browser-driven screenshot crawl that feeds Claude Design handoffs. It is not part of the plan → ship chain; install it or not.
 
 ## Per-project configuration — `.claude/conventions.yaml`
 
@@ -93,8 +96,11 @@ linear:
     done: "Done"
 
 branch:
-  # Variables: {prefix} (THE), {prefix_lower} (the), {id} (numeric), {slug}
-  format: "westmaas/the-{id}-{slug}"
+  # Variables: {user} (GitHub login of whoever runs the skill), {prefix} (THE),
+  # {prefix_lower} (the), {id} (numeric), {slug}
+  # {user} keeps this file free of any one developer's login — the same file
+  # produces alice/the-219-… for one person and bob/the-219-… for the next.
+  format: "{user}/{prefix_lower}-{id}-{slug}"
 
 gate:
   - bun run lint
