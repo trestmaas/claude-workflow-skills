@@ -46,6 +46,7 @@ The ticket id (e.g. `THE-219`). Can be passed as argument or asked for if missin
 - If the ticket is part of a planned project (look for `.handoffs/<project-slug>/tickets.yaml` containing this id), read the yaml entry too — it's the authoritative contract.
 - Cross-check: do Linear and yaml agree on file surface and acceptance? If they diverge, **pause** `needs input: ticket and handoff yaml disagree on <field>`.
 - **Backend-dependency check.** Scan acceptance criteria for endpoint-shaped strings: tRPC procedure names (`viewer.foo.bar`, `organizations.delete`), REST routes (`/api/...`), or service-method calls. For each, grep main for the definition. If any are missing, **pause** `needs input: acceptance implies <endpoint> but it does not exist on main` — listing every missing one. Do NOT stub a "coming soon" toast, do NOT invisibly extend an unrelated router to add the surface yourself. The point of the pause is to let the user rescope the ticket or land the backend in a different ticket first. Project #5's THE-277/THE-279 silently shipped UI pointing at non-existent endpoints because no one checked.
+- **Read-path check.** The mirror of the one above. For any criterion of the shape *"the organizer/participant reads/sees X on surface Y"*, trace the **production** path from the surface back to the row — the button or page, the procedure it actually calls, the projection that procedure returns — and confirm X is on it. Do not stop at the helper the ticket names. On participant-questions, SIGN-1303's ticket named `participantsCsv.ts` and the roster read that feeds it; the Export buttons call a *different* procedure (`signups.export`) that had never projected an answer, so the `Answer` column had been empty in production for a month and the new columns would have been too. SIGN-1302 found the same shape one layer up: the manage page renders from a tree payload that carried no answers at all. Both were caught only because the agent happened to trace it. If the production path lacks X, that is scope: widen the ticket and say so in the PR, or `needs input:` if the widening is large. Had the tickets named the procedure instead of the helper, the planner would have caught both.
 
 ### 2. Enter an isolated worktree
 
@@ -110,6 +111,8 @@ The cheap check is a mutation: change the constant, break the branch, delete the
 
 Commit: `tests: failing tests for <TICKET-ID>`.
 
+**Then push the branch, now, before implementing.** `git push -u origin <branch>` (with `--no-verify` only where the repo's conventions say the local pre-push gate is skipped, as thesignup's do). A red-tests branch on the remote costs nothing and is the only thing that survives your process dying: on participant-questions two consecutive SIGN-1303 agents were killed by an API rate limit before their first push, and the third started from zero. Had either pushed here, the respawn would have fetched the branch and continued from green-tests-pending. Had the deaths come after a push, this line would change nothing — which is the point.
+
 ### 6. Implement
 
 Write the minimum code to make the tests pass. Match existing style, don't improve adjacent code, surface tradeoffs in one line when making a non-obvious choice.
@@ -162,6 +165,24 @@ Then add the assertion that makes the next insertion fail *locally*: pin the cou
 **Why this is worth doing before the code rather than after the red CI:** in cover-image-cropper the same e2e spec broke **twice**, from two different tickets, each time because an insertion turned a `locator("img")` into a strict-mode violation matching three elements. Each discovery cost a full ~11-minute browser cycle, and neither was visible to the unit lane, typecheck, or a diff review. The third ticket to touch that region was handed the enumeration up front — ten locators, split across the three categories above — and its e2e passed on the **first** cycle. Same class of change, one cheap grep, measurably different outcome.
 
 Note the two shapes that make a locator silently wrong rather than loudly broken: a query that matches *more* than it did (strict mode fails loudly — good) and a query that can no longer *reach* its target (times out, or matches zero and passes a `toHaveCount(0)` that was meant to prove absence — bad).
+
+### 6d. Widened-shape guard — before pushing anything that adds a key or a procedure
+
+If your change adds a field to a shape other code holds a copy of (a row type, a projection, a DTO, a tRPC router), or adds a procedure a component now calls, then **before the push that opens the PR**, enumerate the tests that will break for reasons unrelated to your feature:
+
+```
+grep -rln "<newProcedureName>\|<neighbouringKeyOnTheShape>" src e2e --include=*.test.* --include=*.spec.*
+grep -rn "toEqual(\[\?{" <every test file that asserts on the widened shape>
+```
+
+Two kinds of hit, both cheap to fix now and expensive to discover in CI:
+
+1. **A hand-built mock that lacks the new procedure.** `trpc.slotSeries.setOccurrenceQuestion` was added by SIGN-1297; `SlotsEditor.occurrenceTable.test.tsx` spelled its mock `setDatePlace: noopMutation`, not the `{ useMutation }` shape the author grepped for, and all 10 of its dialog cases threw `undefined.useMutation` in CI. Grep for the *neighbouring* procedure's name, not for one spelling of the mock.
+2. **A `toEqual` on the widened shape.** `AttendedDay` gained `question: null` (SIGN-1302); three db tests asserting `toEqual([{ eventDayId, date }])` went red in a CI-only shard. Add the key explicitly (keep the shape pinned; don't loosen to `toMatchObject`).
+
+Then **run those suites locally, whatever lane they are in.** Do not take a "runs only in CI" note on faith — on thesignup every `*.db.test.ts` runs on the local PGlite harness, and the agents that skipped them on that premise were the ones that went red. If a lane genuinely cannot run here (Playwright without auth secrets), say so in the PR body and expect one CI round-trip for it.
+
+Three of participant-questions' four first-push CI reds were this guard's cases. None was a defect in the feature.
 
 ### 7. Deletion guard
 
