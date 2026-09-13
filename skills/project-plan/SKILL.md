@@ -253,6 +253,22 @@ Example from project #2's first run (THE-247 + step tickets):
 
 This way THE-248/249/250/251 auto-serialize against each other (all touch `OrgWizardShell.tsx`) instead of racing.
 
+### A persisted field drags in every wire schema on its path
+
+The test-mock pattern above has a source-tree twin, and it is quieter: **when a ticket adds a field to a persisted shape, every zod schema between the UI and the row must be widened or the value silently vanishes.** Zod strips unknown keys by default, so a field the UI sends, the service accepts, and the column stores can still arrive as `undefined` — because one tRPC input, one REST body, one MCP tool schema, or the wizard's publish schema in the middle never named it. Nothing throws. Typecheck is green. The only witness is a db test that reads the row back.
+
+On the participant-questions project this was the dominant cause of file-surface drift — **5 of 14 tickets** (SIGN-1292/1293/1294/1295/1300) each had to touch two to four wire schemas nobody declared, and SIGN-1293's premise ("the wizard never sends `customField`") turned out to be true *twice over*: the mapping was missing **and** the publish schema behind it would have stripped the key anyway. One ticket's own comment in the router already documented the identical failure for a `label` field, from a previous project.
+
+So at plan time, for any ticket that adds a field to something persisted: **enumerate the path from the control to the column and put every schema on it in `files:`** —
+
+```
+grep -rn "<siblingFieldName>" src/server/routers src/server/openapi src/server/mcp src/app/api src/components/**/publish
+```
+
+— where `<siblingFieldName>` is a field that already travels the same path (the one the new field sits beside in the row). Every file that names the sibling must name the new field too. Add the hand-built test mocks of each (the section above) while you are there. If the path cannot be enumerated at plan time, say so in the ticket ("widen every wire schema between `ItemFieldsRow` and `items.ask_details`; enumerate at build") so the agent treats it as expected work.
+
+Had the drift been confined to UI files, this would not be the fix. It was not.
+
 ## A "model on existing X" instruction inherits X's bugs — spot-check the precedent first
 
 When a ticket tells an agent to clone or mirror an existing surface ("model on the org-logo route", "same pattern as the avatar upload"), the agent will faithfully reproduce it — **including any latent defect in the precedent.** A clone is only as safe as what it copies, and a security-relevant flaw propagates silently because the ticket *told* the agent to match.
@@ -297,6 +313,33 @@ The two checks above ask *"who produces this field?"* Neither asks *"who creates
 The multi-calendar project planned a `calendar_connections` table, a ticket to create the schema, and four tickets to read from it. **No ticket owned writing a row.** The gap was invisible to every existing check: the schema ticket produced the table, the service ticket produced the queries, the UI tickets consumed real fields from real endpoints. Everything was "produced" by something. But the OAuth flow returns via a *redirect*, so there was no obvious moment where a row got written, and nobody asked. SIGN-347's agent discovered it mid-build and invented a lazy reconcile-on-read (`syncConnections`) to close it — a **load-bearing design decision, made under time pressure, by an agent, because the planner never asked the question.** It happened to be a good decision. That was luck.
 
 > **For every table or persisted entity the plan introduces, walk its full lifecycle and name the owning ticket for each step: who CREATES a row, who UPDATES it, who DELETES it.** If any step has no owner, you have found a hole — fill it at plan time. Pay special attention to rows created as a side-effect of a flow you don't control (an OAuth redirect, a webhook, a third-party callback): those are exactly the ones with no natural home, which is why they end up with none.
+
+**4. A capability built before its storage, with nothing scheduling the join.**
+
+The checks above ask who produces a field and who writes a row. None asks *when a control becomes reachable relative to the thing that persists what it produces* — and a plan can pass all three while shipping a feature that is either inert or actively wrong for the window between two merges.
+
+Cover-image-cropper split "rewrite the cropper" (which owns the ratio picker) from "wire the create wizard" and "wire the edit page" (which own the field that stores a chosen ratio). Correct decomposition. But the picker defaults **on**, so the moment the cropper merged, an organizer could pick 1:1 — and the wizard, still typing that field as a bare string, dropped the choice and re-cropped their image to 16:9, losing ~44% of its height. Every ticket's tests passed. The defect existed only in the *interval*.
+
+The author caught it in review and shipped a `showRatioPicker={false}` stopgap at both call sites, with source comments naming the two successors. That worked — but only because the orchestrator hand-carried "remove this" into both later briefs. **Nothing in `tickets.yaml` encoded it.** Had either brief omitted it, the project would have merged 13/13 green with its headline capability permanently disabled, and every test would still have passed, because the tests were written against the stopgap.
+
+> **When one ticket exposes a capability whose storage or consumer lands in another, decide at plan time which of these you want, and write it down:**
+>
+> - **Sequence it** — make the storage ticket a `depends_on` of the ticket that exposes the control, so the interval never exists. Cheapest when the DAG allows it.
+> - **Ship it dark** — the exposing ticket defaults the control off, and **the successor carries "remove the `<flag>` stopgap and invert the guard test asserting it is absent" as an explicit acceptance criterion.** Not a code comment. A criterion, on the named ticket, in `tickets.yaml`.
+>
+> A stopgap recorded only in source is a promise no check can keep. And note the second half of that criterion: a guard test asserting the control is *absent* must be **inverted, not deleted**, or the successor can satisfy its AC by removing the evidence.
+
+The general form, worth applying beyond feature flags: **any deliberate temporary state one ticket leaves for another to clean up is scope that belongs to the successor's acceptance criteria.** Dead code awaiting a consumer, a widened type awaiting a narrowing, a duplicated constant awaiting extraction — same shape, same failure mode.
+
+**5. A writer that lands before its collector, while a gate is already live.**
+
+Check 4 is about a control and its storage. This one is about three tickets, not two: a **gate** that refuses input missing some answer, a **writer** that creates the thing the gate judges, and a **collector** that gives the user a place to answer. The DAG can order gate → writer → collector and pass every check above — the gate has its own tests, the writer produces real rows, the collector consumes real fields — while the product is unusable for the interval between the writer's merge and the collector's.
+
+Participant-questions did exactly this. SIGN-1300 (the server gate: a Required Day Question blocks registration) merged first. SIGN-1294 (the wizard, the first writer of Day Questions) was review-clean and CI-green next. SIGN-1301 (the review page, the only place a participant can *answer* a Day Question) was still building. Had #1429 merged on schedule, an organizer could have published a required question and every new signup on that event would have been refused with an error nobody could satisfy — on a repo that deploys `main` to production. The independent reviewer caught it; the orchestrator held the PR ~5h. **Nothing in `tickets.yaml` encoded it**, because no file overlapped and no `depends_on` pointed the right way.
+
+> **For every enforcement ticket in the plan, name who writes the data it judges and who collects the answer it demands, and order the writer after the collector** — `depends_on`, in the yaml. If the DAG cannot afford that (the writer is on the critical path), the writer ships dark (check 4) with the collector carrying the un-darkening criterion.
+
+Had the gate and the collector been one ticket, or had the writer been the last ticket, this check would fire on nothing. It fires exactly when enforcement is split from input across a merge boundary — which is what parallel execution does by default.
 
 ## Be careful when an acceptance criterion mandates literal copy
 
