@@ -355,6 +355,22 @@ When a ticket's deliverable is a data-driven **registry / config / rule-table** 
 
 On P1, SIGN-405's registry AC said "Move/Remove don't apply to a headcount row." The agent implemented the *move* gating (via `slotCount`) and never hid *remove* or *resend* — "Move/Remove" read as one rule but was two, and the gap stayed invisible until SIGN-416 tried to converge onto the registry and hit a merged sibling's test. It forced a mid-run `needs input:` pause and a scope expansion. "Move/remove" is not one rule. If the deliverable is a table, the AC is a table: one falsifiable row per entry, per surface it feeds.
 
+## A count quoted in an AC must come from the tool that will later verify it
+
+When a ticket's deliverable *is* a scanner, enumerator, or guard — a lint rule, a source-scanning test, a registry check — every downstream ticket that quotes a count ("the three primitives hold 51/36/25 physical utilities", "24 activity kinds", "≤ 230 sites after cleanup") is quoting a number the scanner has not yet produced. A regex over source is not the scanner: it matches the same token in prose, in comments, in selector text, in sub-object discriminators. The number reads as verified and is wrong on arrival.
+
+On i18n-readiness this happened twice in one plan. The per-file CSS counts (51/36/25) came from a grep that also matched `left`/`right` inside Radix `data-[side=…]` selectors; the real scanner (SIGN-1306) said **11/8/3**, so SIGN-1308's "a third of the baseline" premise and SIGN-1319's "≤ 230" AC were both false. The "24 activity kinds" came from grepping `kind: "…"` across writer files; five of those were sub-object discriminators never passed to `record()`, and the golden-table AC pinned a completeness number of 24 for a union of **19**. Both were caught by the executing agents and cost a mid-run Linear patch each — cheap, but only because the orchestrator was watching.
+
+> **Sequence the scanner ticket first, and in every dependent write "N — measured by SIGN-xxxx's tool at build time" instead of a number.** If the plan needs a figure for sizing, label it an estimate and name what it was counted with. An AC that pins a number the ticket's own tool will contradict is a false green waiting to happen; a `≤ <measured>` pinned at the prune ticket is the honest form.
+
+## A ticket that adds a repo-wide guard must check the PRs already open
+
+A new filesystem-globbed guard — a lint rule with a baseline, a source-scanning test, a ratchet — is evaluated against `main` the moment it merges. Every PR open at that moment was tested on a base that did not have the guard. If required checks are not `strict` (they are not on thesignup), a PR green on the stale base merges past the guard, and `main` goes red for everyone until someone notices.
+
+On i18n-readiness, SIGN-1273 (another project) added `pl-[3.25rem]` on a branch cut before the CSS guard existed, merged six minutes after the guard, and turned `main` red for 35 minutes; four of this project's armed PRs sat blocked until a one-token hotfix landed and each branch was updated from `main` (a `gh run rerun` replays the *old* merge ref and does not help). The same ticket's own test fixture used `border-lime-200` as a "look-alike" token and tripped the pre-existing brand-palette guard — the new guard's fixtures are inputs to every other guard.
+
+> **Add two ACs to any ticket that introduces a repo-wide guard:** (1) "Run the guard against every open PR's merge ref (`gh pr list --state open`, then the scanner on `refs/pull/N/merge`) and list in the PR which would fail; either fix them in this PR or file the follow-up before merging." (2) "Run every other filesystem-globbed guard in the repo against this PR's new files and fixtures." Name the other guards in the ticket; the executing agent will not know they exist.
+
 ## An example in an AC must actually reproduce the bug
 
 A bug ticket usually quotes a concrete input — the email that overflows, the title that wraps, the payload that 500s. That example is not illustration. It is **the thing the agent will write its test against**, so a plausible-looking example that doesn't actually reproduce the bug is *worse than no example*: it manufactures a false green. The agent writes the test the AC asked for, watches it pass, and ships a fix it never proved.

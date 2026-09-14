@@ -28,6 +28,7 @@ The project slug, name, or Linear project id. Resolve to a slug via `mcp__claude
 - Read `.handoffs/<slug>/tickets.yaml`.
 - Validate every ticket has an id (filled in during `/project-plan`). If any are missing, pause `needs input: ticket(s) without Linear id — was /project-plan completed?`.
 - Read the `concurrency` field. Default `3`.
+- **Assert the shared checkout is at `origin/main` before the first spawn.** `git -C <shared checkout> rev-list --count HEAD..origin/main`; if non-zero and the checkout is on `main` with no local changes, `git pull --ff-only origin main` there. Why: `core.hooksPath` (and anything else resolved by absolute path) points at the *shared* checkout, so every child worktree runs the shared checkout's copy of `pre-push`, not its own branch's. On i18n-readiness the shared checkout was 42 commits behind and still carried the old full-gate hook; every agent paid a ~10-minute `verify:ci` under load 100–230 for two hours after the repo had already switched the hook to deps-check-only. One command at DAG-build time. If the checkout is on another branch or dirty, don't touch it — surface it and tell the children the hook they will get.
 
 ### 1a. Reconcile with Linear (resume support)
 
@@ -98,13 +99,17 @@ while ready or running:
   for each completed:
     if result == merged:
       mark ticket Done in our local state
-      release any dependents whose remaining deps are now empty into `ready`
+      for each dependent whose remaining deps are now empty:
+        re-read its description against the merged diff; patch stale premises in Linear BEFORE releasing it
+        release it into `ready`
     elif result == needs_input:
       mark ticket Paused — surface the reason to the user inline
       its dependents stay queued; they will not run until this ticket completes
     elif result == failed:
       same as needs_input — pause it, keep moving
 ```
+
+**Re-read dependents against the merged diff before releasing them.** A merge changes the world its dependents were planned in, and a `/start` agent reads its ticket as truth. On i18n-readiness, SIGN-1318 deleted a helper that SIGN-1312 was scoped to delete, and SIGN-1306's scanner disproved the per-file counts SIGN-1308's description quoted; SIGN-1310's reviewer measured exactly which sites remained for SIGN-1311. In each case the orchestrator patched the dependent's Linear description (a "Scope correction" paragraph at the top) before spawning, and no agent lost a lifecycle to a stale premise. Concretely, at each merge: `gh pr diff <N> --name-only`, then for every ticket it unblocks, check whether the diff touched a file, helper, count, or line number that ticket's description names; if so, patch the description and say what changed and why. The subagent's "stop and report if a premise is already fixed" rule is the backstop; this step is what keeps it from firing.
 
 **Implementation notes:**
 - Use the `Agent` tool with the `general-purpose` subagent type (or a dedicated agent if available) for each `/start` spawn. Pass `run_in_background: true` so they run concurrently.
@@ -227,7 +232,7 @@ The orchestrator *does* hold the Agent tool. So the orchestrator — not the sub
 
 Cost: one extra agent per ticket. Benefit, measured: three defects that would otherwise have shipped, one of them permanently unrecoverable. When `delivery.agent` is unspawnable this is the *only* independent check in the pipeline — treat it as mandatory, not belt-and-suspenders. If a run already merged PRs without this gate (e.g. because the DAG raced ahead), retro-review those merged PRs adversarially at closeout and file any findings as follow-up tickets — a merged defect is a ticket, not a lost cause.
 
-**Repo note — thesignup:** its configured `code-delivery-orchestrator` (`delivery.agent`) has **never** been spawnable from inside a `/start` subagent across multiple projects, so on this repo the orchestrator-spawned independent reviewer is *always* the only gate — never skip it. The gate has earned it: on the Event-cover-images run 2 of 6 PRs carried a BLOCKING defect that self-review missed and CI was green over (a cross-tenant blob-delete IDOR, and a draft cover leaking via og:image), both caught and fixed pre-merge. On participant-questions it was **7 of 14 PRs, 9 blocking findings, 0 found by self-review** — a question-only save writing an Activity Record the project had forbidden; an attend-only path that bypassed a Required question on two routes plus an unauthenticated public tRPC door with no gate at all; a blank-question gate judging rows a mode switch had hidden; a Live Write that left the page stale on reopen; and one sequencing hazard no file overlap could express (check 5 in `/project-plan`). Every one was at a seam between tickets, and every one was found by a brief that named what the neighbours assume. Mean review iterations stayed at 0.64: one fix round, never two. Keep the neighbour-scoped brief; it is the part that does the work.
+**Repo note — thesignup:** its configured `code-delivery-orchestrator` (`delivery.agent`) has **never** been spawnable from inside a `/start` subagent across multiple projects, so on this repo the orchestrator-spawned independent reviewer is *always* the only gate — never skip it. The gate has earned it: on the Event-cover-images run 2 of 6 PRs carried a BLOCKING defect that self-review missed and CI was green over (a cross-tenant blob-delete IDOR, and a draft cover leaking via og:image), both caught and fixed pre-merge. On participant-questions it was **7 of 14 PRs, 9 blocking findings, 0 found by self-review** — a question-only save writing an Activity Record the project had forbidden; an attend-only path that bypassed a Required question on two routes plus an unauthenticated public tRPC door with no gate at all; a blank-question gate judging rows a mode switch had hidden; a Live Write that left the page stale on reopen; and one sequencing hazard no file overlap could express (check 5 in `/project-plan`). Every one was at a seam between tickets, and every one was found by a brief that named what the neighbours assume. Mean review iterations stayed at 0.64: one fix round, never two. Keep the neighbour-scoped brief; it is the part that does the work. On i18n-readiness (15 PRs, mostly mechanical sweeps) the same gate ran at **0.27 fix rounds** — the benchmark for a well-briefed mechanical project — and still found the only blocking defects (a ratchet the author's new spellings tripped; a percentage whose old value was a float artifact; a CI red from a test fixture tripping a sibling guard) while self-review found none in 15. What made the briefs cheap to act on: each one told the reviewer to **reproduce the author's claims, not read the diff** — compile the replacement Tailwind tokens through Tailwind itself, diff 927 rendered outputs against `origin/main`, run 245k writer-vs-renderer comparisons across zones and DST days, check out the pins-only commit and prove the pins were green on pre-migration code. A reviewer that only reads confirms what the author already believed.
 
 ### 5. Surface progress
 
