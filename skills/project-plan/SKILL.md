@@ -82,6 +82,10 @@ Ask these one or two at a time, not all at once. After each answer, write the an
 6. **Phased or flat?** — phased means a milestone gate matters (e.g., "Phase 0 — Foundations" must complete before Phase 1). Flat means tickets can fire in any order subject to per-ticket deps. Default to flat unless you hear a clear sequencing reason.
 7. **Follow-up to a prior project?** — if yes, fetch the parent via `mcp__claude_ai_Linear__get_project` and thread its context (PRs merged, deferred work) into the new Why.
 
+## A grilling decision that names an artifact must first read what the artifact is
+
+When a decision under discussion says "X counts as proof / ownership / identity" — a cookie, a token, a header, a link — read X's *definition* in the code before recording the decision, not its name in the ticket prose. On Access Token the SIGN-1387 decision listed the Identity Cookie as a proof source because the ticket said so; the cookie carries a signed *email*, never a token, and is obtainable for any address by registering it. The code correctly refused it and the decision had to be amended after the fact. One `sed -n` on `signup-identity-cookie.ts` during grilling would have kept the decision and the code in agreement from the start. Grilling already looks facts up rather than asking; the definition of an artifact a decision hinges on is such a fact.
+
 ## Pin the vocabulary before writing tickets
 
 The interview will surface domain terms — some fuzzy, some overloaded (one word doing three jobs). Before writing acceptance criteria, run `/domain-modeling` to sharpen those terms and record them in `CONTEXT.md` (create it if absent). Then **write ticket titles and acceptance criteria in that pinned vocabulary**, and note in `project.md` that executing subagents should read `CONTEXT.md` for the glossary. Consistent language across tickets is what keeps N parallel agents from each naming the same concept differently — the vocabulary equivalent of the shared-plumbing rule below.
@@ -233,6 +237,23 @@ grep -rl "<ComponentName>\|trpc\.<router>\.<newProcedure>" src/**/__tests__ src/
 
 — and add every hit to that ticket's `files:`. This both makes the drift honest and lets the auto-sequencer serialize correctly against any sibling touching the same test files. If you can't enumerate them at plan time, say so in the ticket ("expect to update existing `CreateSignupWizard` test mocks — enumerate at build") so the executing agent treats it as expected work rather than unplanned scope.
 
+**The same rule applies to any change of a shape that fixtures spell out — not only to shared components.** On Access Token, 3 of 4 PRs touched 15–21 undeclared *test* files for one reason each: a procedure input gained a field (`slug`), an actor union lost a member (`public-form`), a service signature narrowed (`{ userId }`). None of those is "a query or prop on a shared component", so the rule above did not fire, and the drift was almost entirely tests. So: for any ticket that changes a procedure input, an actor/enum union, or a service method signature, grep for the *old* spelling in test files at plan time —
+
+```
+grep -rl 'kind: "public-form"' src --include=*.test.*
+grep -rl 'getSignupsByToken(' src --include=*.test.*
+```
+
+— and declare every hit. Had the drift been in source files this would not be the fix; it was the fixtures.
+
+**A procedure that does not exist yet cannot be grepped — declare the mocks by their parent, not by the name.** The rule above greps the *old* spelling, which works for a field or a union member that already exists. It under-counts when the ticket *creates* the thing: on One Actor a new tRPC procedure (`events.publishDraft`) broke 21 component tests whose strict router mocks list every procedure they expect, and a deleted one (`listForActiveOrg`) orphaned 22 more. Neither name existed at plan time to grep for. So for any ticket that may **add or remove a tRPC procedure** (or any strictly-mocked module's export), declare the mock files by their parent instead:
+
+```
+grep -rl "events: {" src/components --include='*test*'     # strict mocks of the events router
+```
+
+Every hit is expected surface. The mocks fail on a new procedure regardless of its name, so the name is not needed to predict them.
+
 Example from project #2's first run (THE-247 + step tickets):
 
 ```yaml
@@ -355,6 +376,40 @@ When a ticket's deliverable is a data-driven **registry / config / rule-table** 
 
 On P1, SIGN-405's registry AC said "Move/Remove don't apply to a headcount row." The agent implemented the *move* gating (via `slotCount`) and never hid *remove* or *resend* — "Move/Remove" read as one rule but was two, and the gap stayed invisible until SIGN-416 tried to converge onto the registry and hit a merged sibling's test. It forced a mid-run `needs input:` pause and a scope expansion. "Move/remove" is not one rule. If the deliverable is a table, the AC is a table: one falsifiable row per entry, per surface it feeds.
 
+## A count quoted in an AC must come from the tool that will later verify it
+
+When a ticket's deliverable *is* a scanner, enumerator, or guard — a lint rule, a source-scanning test, a registry check — every downstream ticket that quotes a count ("the three primitives hold 51/36/25 physical utilities", "24 activity kinds", "≤ 230 sites after cleanup") is quoting a number the scanner has not yet produced. A regex over source is not the scanner: it matches the same token in prose, in comments, in selector text, in sub-object discriminators. The number reads as verified and is wrong on arrival.
+
+On i18n-readiness this happened twice in one plan. The per-file CSS counts (51/36/25) came from a grep that also matched `left`/`right` inside Radix `data-[side=…]` selectors; the real scanner (SIGN-1306) said **11/8/3**, so SIGN-1308's "a third of the baseline" premise and SIGN-1319's "≤ 230" AC were both false. The "24 activity kinds" came from grepping `kind: "…"` across writer files; five of those were sub-object discriminators never passed to `record()`, and the golden-table AC pinned a completeness number of 24 for a union of **19**. Both were caught by the executing agents and cost a mid-run Linear patch each — cheap, but only because the orchestrator was watching.
+
+> **Sequence the scanner ticket first, and in every dependent write "N — measured by SIGN-xxxx's tool at build time" instead of a number.** If the plan needs a figure for sizing, label it an estimate and name what it was counted with. An AC that pins a number the ticket's own tool will contradict is a false green waiting to happen; a `≤ <measured>` pinned at the prune ticket is the honest form.
+
+## A ticket that unifies N paths must inventory each path's RULES, not just its auth and side effects
+
+The sibling of the count rule: when a ticket merges two (or more) code paths into one, the plan's divergence table is what the executing agent builds to — so a row the table does not have is a difference nobody resolves. On One Actor the table had four rows (authorization, not-found shape, rules, side effects) and was filled by reading the *pairs the ticket named*. Both blocking defects were rules one path had and the other lacked, and one of them lived on a **third** path the table never listed: the dashboard published through `update({ status: "published" })` while the API used `publish()`, and only the latter refused a closed event — so a free-tier organizer could resurrect a closed event past the hosting cap. The same shape appeared twice more (webhook writes gated owner/admin on one path only; the headcount rule on one path only).
+
+> **For every ticket that unifies N paths: before building, enumerate each path's rules from the tree — every `assert*` / `require*` call and every inline `throw` in its body — and put them in the PR body as a per-path table. Every asymmetry is either resolved in the ticket or named as deliberate.** Enumerate by *operation*, not by the pair of names the ticket happens to use: grep for every caller that reaches the same write (`grep -rn "status: \"published\"" src` found the third publish path). The reviewer re-derives the table rather than reading it. Would have been wrong to recommend if the defects had been in the rows the table already had.
+
+## A "make N doors/writers agree" ticket must carry the grep that enumerates N
+
+The sibling failure to the one above: the count is not of things a tool will later produce, but of things that already exist on `origin/main` — callers, writers, doors — and the planner counted them from memory or a skim. On Access Token the author's count was wrong twice in one project: "seven client callers" (there were eight — `useReviewSubmit.ts`) and "two writers of `event_signups.user_id`" (there were three — public `signups.create`). The second miss would have made the follow-up unlink migration silently non-durable; the reviewer found it, not the author. On the timezone ticket that followed, the planner ran the grep first and it turned up two writers the original architecture review had missed entirely.
+
+> **A ticket that says "N" must say "N — enumerated on `origin/main` by `<grep>`; the PR body lists them", and the reviewer brief carries the same grep.** The grep is the claim; a number without one is a guess that reads as a measurement. Would have been wrong to recommend if the counts had held.
+
+## A guard's ACs must name the ways of being unclassifiable, not just the thing it catches
+
+When a ticket's deliverable is a scanner, a ratchet, or a source-scanning test, its fixtures will test the shapes the author thought of — and a guard that quietly *passes* what it cannot parse is worse than none, because the PR body will say it is enforced. On One Actor three guards shipped and an adversarial reviewer broke two of them in minutes: the rule-set scan was satisfied by the rule's *name* in a comment, by a call with the wrong argument, by a call placed after the write, and by a one-character allowlist entry; the schema guard passed a `z.object({…}).extend({ eventId })` and a non-identifier argument, both silently, while its docblock claimed it "refuses what it cannot classify".
+
+> **For any ticket whose deliverable is a guard, the AC enumerates the ways an input can be *unclassifiable* — not only the violation it catches — and requires a fixture per way proving a loud refusal.** A scanner that returns "no finding" and one that returns "cannot tell" must be different results. Then add to the reviewer brief: *try to satisfy the guard without doing the thing* — the name in a comment, the call with the wrong argument, the call after the write, the allowlist entry, the shape the regex does not reach. Had the guards held under those attempts, this would not have been the fix.
+
+## A ticket that adds a repo-wide guard must check the PRs already open
+
+A new filesystem-globbed guard — a lint rule with a baseline, a source-scanning test, a ratchet — is evaluated against `main` the moment it merges. Every PR open at that moment was tested on a base that did not have the guard. If required checks are not `strict` (they are not on thesignup), a PR green on the stale base merges past the guard, and `main` goes red for everyone until someone notices.
+
+On i18n-readiness, SIGN-1273 (another project) added `pl-[3.25rem]` on a branch cut before the CSS guard existed, merged six minutes after the guard, and turned `main` red for 35 minutes; four of this project's armed PRs sat blocked until a one-token hotfix landed and each branch was updated from `main` (a `gh run rerun` replays the *old* merge ref and does not help). The same ticket's own test fixture used `border-lime-200` as a "look-alike" token and tripped the pre-existing brand-palette guard — the new guard's fixtures are inputs to every other guard.
+
+> **Add two ACs to any ticket that introduces a repo-wide guard:** (1) "Run the guard against every open PR's merge ref (`gh pr list --state open`, then the scanner on `refs/pull/N/merge`) and list in the PR which would fail; either fix them in this PR or file the follow-up before merging." (2) "Run every other filesystem-globbed guard in the repo against this PR's new files and fixtures." Name the other guards in the ticket; the executing agent will not know they exist.
+
 ## An example in an AC must actually reproduce the bug
 
 A bug ticket usually quotes a concrete input — the email that overflows, the title that wraps, the payload that 500s. That example is not illustration. It is **the thing the agent will write its test against**, so a plausible-looking example that doesn't actually reproduce the bug is *worse than no example*: it manufactures a false green. The agent writes the test the AC asked for, watches it pass, and ships a fix it never proved.
@@ -383,6 +438,7 @@ Rules for any AC that mandates a test:
 - Assert a **rendered/computed property**, never a source token: line boxes via a `Range`, `getComputedStyle().overflowWrap`, `elementFromPoint`, measured geometry. Never a `className`, and never a single block-level rect count.
 - Require the ticket to **prove red-before-green by reverting only the fix** — the agent must watch the test fail against the unfixed tree, and for a class/CSS fix, strip *only* the changed class from a real build and confirm it goes red (a subagent caught an inert Tailwind fix exactly this way).
 - If you cannot construct a falsifiable assertion at plan time, say so in the ticket rather than prescribing one that can't fail. A wrong prescribed assertion is worse than none — the agent trusts it.
+- **When the decision changes where a user lands, the e2e must walk the app's own navigation.** Any AC of the form "after X the user can still Y" is satisfied only by a spec that reaches Y through the UI's own links and redirects, never by `page.goto`-ing the destination. On Access Token the first re-attend spec went straight to `/manage?token=` and passed; the reviewer asked for the real flow (cancel → landing → pick → save) and it failed on a cleared client stash that no unit test could see. This does not fire on a pure server ticket.
 
 ## Sequence global-chrome tickets ahead of layout-measuring ones
 
