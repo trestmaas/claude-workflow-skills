@@ -123,6 +123,8 @@ While implementing, if you hit an acceptance criterion that's **ambiguous** (the
 - State what's ambiguous, the two interpretations, and which one you'd pick if forced.
 - Do not guess past this point. The whole point of pausing is to avoid silently building the wrong thing in a parallel sub-agent context where the user can't course-correct mid-flight.
 
+If you were spawned on a lighter model (`/project-start` runs mechanical tickets on Sonnet) and the ticket turns out to need design — a trust boundary, a new seam other tickets will build on, a "no behaviour change" claim you can't re-derive with confidence — stop and return `needs input: escalate model — <what makes it harder than it looked>`. Your red-tests branch is already pushed, so the orchestrator resumes on a stronger model from there. Don't push through a design call you're unsure of just because the tests would go green.
+
 If during implementation you discover a missing file from the declared surface (something you need to touch that wasn't listed), note it in a comment on the ticket via `mcp__claude_ai_Linear__save_comment` and continue. After merge, `/project-retro` will surface drift.
 
 **Comment hygiene.** Source comments are for non-obvious WHY (hidden constraint, subtle invariant, workaround for a specific bug) — not for narrating tradeoffs, decisions, or PR context. That belongs in the PR description. Do NOT add file-header block comments explaining "I chose X over Y because Z" or "this ticket implements...". If a future reader of just this file wouldn't be confused by the absence of the comment, don't write it. Project #5 had three sections (THE-280, THE-283, THE-284) land tradeoff narration in source files; the cleanup belongs in the PR body.
