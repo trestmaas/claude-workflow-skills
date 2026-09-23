@@ -86,6 +86,38 @@ Ask these one or two at a time, not all at once. After each answer, write the an
 
 When a decision under discussion says "X counts as proof / ownership / identity" — a cookie, a token, a header, a link — read X's *definition* in the code before recording the decision, not its name in the ticket prose. On Access Token the SIGN-1387 decision listed the Identity Cookie as a proof source because the ticket said so; the cookie carries a signed *email*, never a token, and is obtainable for any address by registering it. The code correctly refused it and the decision had to be amended after the fact. One `sed -n` on `signup-identity-cookie.ts` during grilling would have kept the decision and the code in agreement from the start. Grilling already looks facts up rather than asking; the definition of an artifact a decision hinges on is such a fact.
 
+## An acceptance criterion that asserts a fact about the code must carry the derivation, not the fact
+
+When an AC states a number, a file list, or "X is a Y", **write the command that produces it instead of the answer**. `grep -c "\.foo(" src/server/services/bar.ts → 0` is an AC; "the four sites in `bar.ts`" is a guess with a number in it.
+
+On Dashboard Actor, **four ACs across three tickets were false or unmeetable**, and every one asserted a property of the tree the planner had not derived:
+
+- "five sites" where two of them were containment loaders called by eleven methods — the real blast radius was fourteen operations, nearly 3x the ticket.
+- "`date-place-invariant.db.test.ts` passes untouched" — it calls the service directly, so the signature change reaches it.
+- "a row of another event under the same org is `NOT_FOUND` for every actor" — false for a method that takes no event id, where authorization follows the row. Two separate tickets hit this same shape.
+- "keep the two `FORBIDDEN`s as role rules after a passed resolver" — **unmeetable**: both live in a token-keyed method that cannot have a resolver, because one would have to admit someone not yet on the roster.
+
+The worst of them would have deleted a product feature: an AC describing `cloneForUser` as an inline creator check, when it is a growth loop where a stranger cloning a *published* signup must succeed. Building it as written reds **45 cases across seven suites**.
+
+Every one was caught by an agent that stopped and reported rather than forcing the AC — which is the behaviour to keep, and why "stop and report a false premise is a valued outcome" belongs in every `/start` brief. But the cost is a stalled ticket each time, and a specific-and-wrong AC is far more dangerous than a vague one, because it reads as authority. **The derivation fails at grep time; the assertion fails at build time.**
+
+Two corollaries worth stating in the ticket itself:
+
+- **If an operation takes no event id, say authorization follows the row** and name the path that must refuse, rather than claiming blanket containment.
+- **A count is a ceiling only if you re-derived it at plan time against `origin/main`** — and the AC should tell the agent to re-derive it anyway.
+
+## Every number a plan or a PR publishes is re-derived against the state being published
+
+Not against the state you were in when you wrote it down. On Dashboard Actor the closing ticket's own Outcome table — headed *"Re-derived rather than copied; each figure is the output of the command beside it"* — published a file count that was the union **without** the closer, under a heading naming the closer. Cause: the script ran *before* the closer's own work was committed, so `git diff --name-only origin/main...HEAD` returned nothing and the union silently degraded by one PR. The author saw the `0`, re-derived correctly for the PR body after committing, and never went back to the table already written.
+
+That was the **sixth** instance in one project of a single defect: *an unverified claim stated flatly*. The others: an unqualified permissions claim false for soft-deleted orgs; a verifying grep whose path list excluded the only file containing the hit, run clean by three separate tickets; a RED run credited with proving a displacement it structurally could not; a helper's naming justified by a scan that never reads that method; and a count low by 5x.
+
+None is catchable by a gate, and all six were caught by a human-facing review. So:
+
+- **Prefer one place that derives a figure, with every other place quoting it.** Two artifacts holding the same number independently will disagree, and the durable one is usually the stale one.
+- **Re-run the derivation last**, after the final commit, before publishing.
+- **State what a proof does *not* cover.** "This RED run proves the call-shape change and the closed oracles; it does not demonstrate the refusal displacement — that is proven by X" is worth more than a longer list of what it does.
+
 ## Pin the vocabulary before writing tickets
 
 The interview will surface domain terms — some fuzzy, some overloaded (one word doing three jobs). Before writing acceptance criteria, run `/domain-modeling` to sharpen those terms and record them in `CONTEXT.md` (create it if absent). Then **write ticket titles and acceptance criteria in that pinned vocabulary**, and note in `project.md` that executing subagents should read `CONTEXT.md` for the glossary. Consistent language across tickets is what keeps N parallel agents from each naming the same concept differently — the vocabulary equivalent of the shared-plumbing rule below.
