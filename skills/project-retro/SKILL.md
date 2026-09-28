@@ -72,7 +72,7 @@ List the last ~10 retro documents (`mcp__claude_ai_Linear__list_documents` with 
 
 ### From `/project-start` runtime (if available)
 
-If a runtime log exists at `.handoffs/<slug>/runtime.log` (future enhancement — `/project-start` could emit one), include:
+`/project-start` writes `.handoffs/<slug>/runtime.log` (one line per `spawn` / `review` / `merge` / `paused` / `killed`). If it exists, include the items below, and use its `review` lines for the independent-review verdicts. A PR with a `merge` line and no `review` line is a finding.
 
 - Tickets that paused as `needs input:` and the reason.
 - Auto-sequenced file-surface conflicts that were caught.

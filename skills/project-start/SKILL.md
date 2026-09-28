@@ -118,6 +118,29 @@ while ready or running:
 - **Make the `/start` prompt include a worktree self-check as its first action:** "Run `git rev-parse --show-toplevel`; if it is not under `.claude/worktrees/`, you are NOT isolated — create a real worktree per the /start fallback and use `git -C`, never mutate the shared checkout's HEAD." `isolation: "worktree"` occasionally fails silently — one agent ran in the shared main checkout and its `git checkout -b` moved the shared HEAD before it detected and recovered. The self-check catches it.
 - **Tell every `/start` prompt to `git fetch` and branch from the fetched `origin/main`, and to stop-and-report if a premise is already fixed** (a valued outcome, not a failure). This is the execution-time half of the planner's fetch-first rule and it is what catches a stale plan before it ships wrong code.
 - **Tell every `/start` prompt which test lanes it can run locally — and verify that claim yourself before relaying it.** On participant-questions the orchestrator's briefs said `*.db.test.ts` "needs Postgres and runs in CI only" because the project doc said so. It was false: every agent that tried ran the db suites locally on the repo's PGlite harness. Two of the four first-push CI reds (#1430's `toEqual` on a widened row shape, #1432's hand-built mock lacking a new procedure) were in suites the agents had skipped on the strength of that sentence. So: before the first spawn, run one db-lane test yourself (`bunx vitest run <one *.db.test.ts>`); put the true answer in every brief; and when a ticket widens a shared shape or adds a tRPC procedure, require the agent to run every suite that mocks or `toEqual`s that shape before pushing. Had the reds been in the genuinely CI-only lane (Playwright), this would not be the fix.
+- **Every fact in a brief or ruling carries the command that produced it, run against `origin/main` at brief time.** This is `/project-plan`'s derive-don't-assert rule, applied to the orchestrator's own writing: the scope notes, rulings and premise patches posted mid-run. On Message catalog the orchestrator's briefs carried five factual errors:
+  - a 35-site undercount;
+  - two directories said not to exist that did exist;
+  - a directory named as scope that had been deleted;
+  - "`ungrouped-counts` guards every namespace", when it guards 3.
+
+  Separately, ICU ruling #1 was broadcast to 10 tickets and disproved by a sweep hours later. Three rules follow:
+  - **Existence comes from the filesystem.** `git ls-tree -r --name-only origin/main <dir>` answers "does X exist?". A census answers "which files have violations", and inferring absence from it is how "doesn't exist" was wrong twice.
+  - **Coverage claims name the guard's config line.** "Guard G covers every N" quotes G's scope or `files:` glob, never its docblock.
+  - **A ruling that reaches more than one ticket is executed before it is broadcast**: render the ICU, run the lint, diff the output, and paste the result into the ruling. Broadcasting it first and letting the sweeps test it multiplies one wrong premise by N lifecycles.
+
+  Following this still depends on the orchestrator, so expect it to partly recur until briefs are generated from commands rather than written.
+- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.**
+  - `spawn <ticket> agent=<description> worktree=<path> branch=<branch> model=<m> prompt=.handoffs/<slug>/prompts/<ticket>.md`. Write the full prompt to that file before spawning.
+  - `review <PR> <blocking|should-fix|clean> by=<reviewer>`.
+  - `merge <PR> <sha>`, `paused <ticket> <reason>`, `killed <ticket> <cause>`.
+
+  Three rules use the log:
+  1. **Merge gate.** The merge step refuses a PR that has no `review` line. On Message catalog, 2 of 19 PRs had no findable independent review, after six retros had called review mandatory.
+  2. **Clear/exit gate.** Before answering "safe to clear / exit / close this session?", list every `spawn` with no matching `merge`. Those agents die with this session: a removed or cleared orchestrator kills its background children, and one did exactly that to a SIGN-1349 agent 10 minutes into its run.
+  3. **Recovery.** A killed agent is resumed from its log line: same worktree, same prompt file, plus a preamble naming its last commit. Don't reconstruct it from transcripts. Rebuilding that SIGN-1349 agent meant searching a 15 MB JSONL for the prompt and a `.meta.json` for the worktree.
+
+  The log also gives `/project-retro` the pause, parallelism and review numbers it otherwise has to mark n/a.
 - **A subagent killed by an API rate limit before its first push lost everything.** Two SIGN-1303 lifecycles died that way on participant-questions; the third started from zero. The harness reports it as an agent error naming `rate_limit` / HTTP 429. Do not respawn into the same limit — that burns another lifecycle for the same result; pause, report the limit to the user, and resume when it clears (a model switch cleared it there). The `/start`-side mitigation is a WIP push right after the red-tests commit, so a killed agent's branch is on the remote for the respawn to continue from.
 - When notified that a background subagent completes, parse its final message for `result:`, `needs input:`, or `failed:` and act accordingly.
 - Never poll. The harness notifies you when a background subagent finishes.
