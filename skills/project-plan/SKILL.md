@@ -416,6 +416,21 @@ On i18n-readiness this happened twice in one plan. The per-file CSS counts (51/3
 
 > **Sequence the scanner ticket first, and in every dependent write "N — measured by SIGN-xxxx's tool at build time" instead of a number.** If the plan needs a figure for sizing, label it an estimate and name what it was counted with. An AC that pins a number the ticket's own tool will contradict is a false green waiting to happen; a `≤ <measured>` pinned at the prune ticket is the honest form.
 
+## A closing "zero remaining" AC needs a plan that covers the whole census
+
+A sweep project ends in an AC like "the Baseline holds zero entries" or "no untranslated literal remains". That AC is only reachable if the union of the sweep tickets' `files:` globs covers **every file in the census**. On Message catalog, no ticket owned `src/types`. Its 42 Zod messages meant the closing ticket could not reach zero, and the gap surfaced on the last day instead of at plan time.
+
+Sweeps also drift on a second kind of shared file: **guards that read the swept source as text**. Examples are a copy-consistency test that scans for literals, a mutation registry whose `find:` anchors quote prose, and a suppressions JSON. Every sweep edits them, and no sweep declared them. That caused 12 tickets of drift on one project: undeclared in 6 sweeps, and declared but untouched in 6 others.
+
+> **At plan time, for any project with a closing "zero" AC:**
+>
+> 1. Run the census (`<enumerator> --json` or the baseline file) and subtract every file matched by some ticket's `files:`. Each leftover file either gets an owning ticket or is named in the closing AC as a deliberate exclusion, with the reason.
+> 2. Find the source-reading guards, for example `grep -rlE "readFileSync|glob\(|find:" <test and script dirs>` filtered to those that read `src/`. Put each one on the `files:` of every sweep whose tree it reads.
+>
+> Put the leftover list in the plan. An empty list is the claim; the subtraction is its derivation.
+
+This would not have been the fix if the 171 remaining sites had all sat in owned trees and been left for cause. Most of them were in an unowned tree or were deferrals the plan never saw.
+
 ## A ticket that unifies N paths must inventory each path's RULES, not just its auth and side effects
 
 The sibling of the count rule: when a ticket merges two (or more) code paths into one, the plan's divergence table is what the executing agent builds to — so a row the table does not have is a difference nobody resolves. On One Actor the table had four rows (authorization, not-found shape, rules, side effects) and was filled by reading the *pairs the ticket named*. Both blocking defects were rules one path had and the other lacked, and one of them lived on a **third** path the table never listed: the dashboard published through `update({ status: "published" })` while the API used `publish()`, and only the latter refused a closed event — so a free-tier organizer could resurrect a closed event past the hosting cap. The same shape appeared twice more (webhook writes gated owner/admin on one path only; the headcount rule on one path only).
@@ -433,6 +448,23 @@ The sibling failure to the one above: the count is not of things a tool will lat
 When a ticket's deliverable is a scanner, a ratchet, or a source-scanning test, its fixtures will test the shapes the author thought of — and a guard that quietly *passes* what it cannot parse is worse than none, because the PR body will say it is enforced. On One Actor three guards shipped and an adversarial reviewer broke two of them in minutes: the rule-set scan was satisfied by the rule's *name* in a comment, by a call with the wrong argument, by a call placed after the write, and by a one-character allowlist entry; the schema guard passed a `z.object({…}).extend({ eventId })` and a non-identifier argument, both silently, while its docblock claimed it "refuses what it cannot classify".
 
 > **For any ticket whose deliverable is a guard, the AC enumerates the ways an input can be *unclassifiable* — not only the violation it catches — and requires a fixture per way proving a loud refusal.** A scanner that returns "no finding" and one that returns "cannot tell" must be different results. Then add to the reviewer brief: *try to satisfy the guard without doing the thing* — the name in a comment, the call with the wrong argument, the call after the write, the allowlist entry, the shape the regex does not reach. Had the guards held under those attempts, this would not have been the fix.
+
+## A guard's success output must say what it checked, and its ticket must prove each scope tree goes red
+
+The rule above catches a guard that cannot parse what it reads. It does not catch a guard that parses fine but **never looks** at part of what its name promises, and there "0 findings" is indistinguishable from "not checked". On Message catalog, 4 of the 10 false-verification findings had this shape:
+- the census missed 258 sites, then about 41% of all sites;
+- one `t(cond ? "a" : "b")` switched the `unused` check off for a whole Namespace, and the check still exited 0;
+- the indirect-literal rule was scoped to `src/components` and `src/app`, so `src/lib` and `src/server` reported a clean zero they had never been scanned for;
+- a count guard described as covering "every namespace" covered 3 of 27.
+
+> **For any ticket whose deliverable is a guard, add two ACs.**
+>
+> 1. **The success line states what was checked.** It prints the files and references scanned, the scope globs, and any category it switched off, with the reason. For example: `4,454 Messages, 4,689 refs, 0 dynamic, unused: on for 27/27 namespaces`.
+> 2. **One planted violation per scope tree, in the real tree.** For every tree or category the guard claims to cover, plant a violation in the real tree, not a fixture, and show the guard goes red. List the trees it does *not* cover in the PR body.
+>
+> The reviewer brief gets the same check: *find a tree or category the guard's name implies but its config excludes.*
+
+This would not have been the fix if those four findings had been unparseable inputs. They weren't: each gate read its inputs correctly and was simply pointed at less than it claimed.
 
 ## A ticket that adds a repo-wide guard must check the PRs already open
 
