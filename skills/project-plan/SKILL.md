@@ -105,6 +105,7 @@ Two corollaries worth stating in the ticket itself:
 
 - **If an operation takes no event id, say authorization follows the row** and name the path that must refuse, rather than claiming blanket containment.
 - **A count is a ceiling only if you re-derived it at plan time against `origin/main`** — and the AC should tell the agent to re-derive it anyway.
+- **An enumerated scope is a floor, not a list.** Any AC of the form "all N of X" / "the four modules" / "the five tables" carries the discovery command that enumerates X, beside the list, so `/start` can re-run it. Evidence: Message catalog Phase 3's "five tables" was eight (two found by grep at contract time, the eighth, `weekStart.ts`'s initials, only by independent review); "66 importers" was 15 non-test; a module's importer list missed one.
 
 ## Every number a plan or a PR publishes is re-derived against the state being published
 
@@ -536,6 +537,7 @@ The `external_depends_on` field is for foreign *tickets*, not for these — a ma
 - If the user gives a tight one-liner upfront ("scaffold a follow-up to <Project> covering the deferred polish") you can skip directly to confirming and proceed.
 - If the user pushes back on a scope item ("nah, drop #3"), update the plan and proceed — don't relitigate.
 - Push back when you see a vague acceptance criterion. "Make it better" or "polish the UI" are not testable — ask for a concrete check.
+- **Ask a decision as the rendered artifact, not in ticket vocabulary.** The question and its options say what the user will see or experience (the on-screen text, the behaviour); a ticket id goes only in the header. Evidence: Message catalog Phase 3's "SIGN-1650 wording?" got "I don't understand what this means"; "the button that deletes your profile photo just says Remove — change it?" was answered in one round.
 
 ## What this skill does NOT do
 
