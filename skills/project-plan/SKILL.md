@@ -236,6 +236,12 @@ This is the "components shipped but never composed" failure mode. Post-Org-UX-in
 
 The integration ticket is small but essential. It's also a natural place for a `verify` skill invocation since these bugs are visible only at the rendered-page level, not the code level.
 
+### When the integration ticket *replaces* a surface, inventory what the old one promised
+
+A redesign handoff shows what the new surface looks like; it does not list what the old one was *required* to do. So the new surface silently drops every behaviour the design happens not to draw. On Hosting agenda, the rewrite of `HostingPage.tsx` dropped SIGN-652's co-organizer badge ("Badge the row so it's clear the viewer isn't the owner"), which was an acceptance criterion, while the new data layer (SIGN-1691) still carried `reachedViaCoOrganizerGrant` for it. The design didn't show one, so no ticket asked for it. The author retired the badge's guard mutants to make the anchor check pass, and only independent review caught it. It's the same family as Attending agenda's dropped Bringing chip and One Actor's "a rule one path had and the other lacked". This is the third retro in that family.
+
+> **For an integration ticket that rewrites an existing file, enumerate the tickets that shaped it:** `git log --format=%s origin/main -- <file> | grep -oE '<PREFIX>-[0-9]+' | sort -u`. Read each one's acceptance criteria, and put a table in the integration ticket listing every user-visible behaviour as *kept* (which new block renders it) or *dropped* (with the decision and who made it). A retired mutant or deleted test for a behaviour not in the *dropped* rows is a blocking finding. This would have been the wrong fix if the lost behaviour had never been an acceptance criterion.
+
 ## Identify shared plumbing
 
 Before finalizing tickets, look at the scope and ask: **does any ticket create a file that siblings will modify?** Typical patterns:

@@ -111,6 +111,8 @@ while ready or running:
 
 **Re-read dependents against the merged diff before releasing them.** A merge changes the world its dependents were planned in, and a `/start` agent reads its ticket as truth. On i18n-readiness, SIGN-1318 deleted a helper that SIGN-1312 was scoped to delete, and SIGN-1306's scanner disproved the per-file counts SIGN-1308's description quoted; SIGN-1310's reviewer measured exactly which sites remained for SIGN-1311. In each case the orchestrator patched the dependent's Linear description (a "Scope correction" paragraph at the top) before spawning, and no agent lost a lifecycle to a stale premise. Concretely, at each merge: `gh pr diff <N> --name-only`, then for every ticket it unblocks, check whether the diff touched a file, helper, count, or line number that ticket's description names; if so, patch the description and say what changed and why. The subagent's "stop and report if a premise is already fixed" rule is the backstop; this step is what keeps it from firing.
 
+**Also check every identifier a dependent names still exists under that name.** A merged ticket can ship its API under different names than its own AC used, and every downstream ticket written from the plan still says the old name. On Hosting agenda, SIGN-1692's AC said `attentionFlags(row, now)`; it shipped as `rowFlags` / `heroFlags` / `laterDateFlags`, and SIGN-1694, 1696 and 1697 all still cited `attentionFlags` — caught by a reviewer, not by this step, because the diff-names check above looks at files, not symbols. Mechanically, at each merge, for each unblocked ticket: extract the backticked identifiers from its description (`grep -oE '\`[A-Za-z_][A-Za-z0-9_]*' | tr -d '\`' | sort -u`) and `git grep -qw <name> origin/main -- src` each one; any that no longer resolves is a stale premise to patch before release.
+
 **Implementation notes:**
 - Use the `Agent` tool with the `general-purpose` subagent type (or a dedicated agent if available) for each `/start` spawn. Pass `run_in_background: true` so they run concurrently.
 - **Pick each child's `model` per ticket — a judgment, not a rule.** Children otherwise inherit the orchestrator's model, and a week of Opus-everything measured ~$35–85 API-equivalent per `/start` lifecycle (200–400 calls at 100–300k context), with `/start` children at two-thirds of all spend. Default to `model: "sonnet"` when the ticket is pattern-following: a sweep, a mechanical migration, a rename, a guard/lint rule, a test migration, copy — the i18n-readiness sweeps are the reference (15 PRs, 0.27 review fix rounds). Keep the strongest model when the ticket's *diff* changes who can reach what (auth, tenancy, IAM grants), introduces a seam or abstraction later tickets build on (usually a DAG root), carries a "no behaviour change" claim that has to be re-derived, or has already failed once on Sonnet. On One Actor the webhook-secret widening was exactly that kind of ticket. Merely *touching* a credentialed or security-relevant system is not a trust boundary. On self-hosted-ci-runners, reading "trust boundary" that broadly put 5 of 6 authors on Opus, while every blocking defect (16 across 5 PRs) was found by the Opus reviewer, not by the author's model. When unsure, pick Sonnet: the independent Opus review gate below is what makes a cheaper author safe, and escalation (below) recovers a wrong pick from the pushed branch. Pick the stronger model on a tie only when no independent review will run. Name the pick and its one-line reason in the spawn status line so the retro can check the calls. Escalate by resuming the ticket on the stronger model when a child returns `needs input: escalate model` (see `/start` step 6) or when a Sonnet-built PR takes a BLOCKING review finding that is a design fix rather than a patch. `/start` pushes its red-tests branch before implementing, so the respawn continues from that branch.
@@ -130,7 +132,7 @@ while ready or running:
   - **A ruling that reaches more than one ticket is executed before it is broadcast**: render the ICU, run the lint, diff the output, and paste the result into the ruling. Broadcasting it first and letting the sweeps test it multiplies one wrong premise by N lifecycles.
 
   Following this still depends on the orchestrator, so expect it to partly recur until briefs are generated from commands rather than written.
-- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.**
+- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.** When the orchestrator runs as a background job, the shared checkout rejects its writes, so the log goes to the job's own directory, which is deleted with the job. In that case, paste the log into the retro doc as an appendix before closeout; otherwise it's lost with the job.
   - `spawn <ticket> agent=<description> worktree=<path> branch=<branch> model=<m> prompt=.handoffs/<slug>/prompts/<ticket>.md`. Write the full prompt to that file before spawning.
   - `review <PR> <blocking|should-fix|clean> by=<reviewer>`.
   - `merge <PR> <sha>`, `paused <ticket> <reason>`, `killed <ticket> <cause>`.
@@ -196,17 +198,20 @@ Two defenses, used together:
 
   ```bash
   # bounded waiter — one guaranteed notification when all PRs go terminal
+  # (terminal = merged, closed, OR dirty: a base conflict queues no CI at all)
   for i in $(seq 1 80); do            # 80 * 30s = 40min cap
     done=1
     for p in <pr numbers>; do
-      st=$(gh pr view $p --json state --jq '.state' 2>/dev/null || echo '?')
-      case "$st" in MERGED|CLOSED) ;; *) done=0;; esac
+      st=$(gh api repos/<owner>/<repo>/pulls/$p --jq '"\(.merged) \(.state) \(.mergeable_state)"' 2>/dev/null || echo '? ? ?')
+      case "$st" in "true "*|*" closed "*) ;; *" dirty") echo "PR #$p DIRTY — base conflict, no CI will run"; exit 0;; *) done=0;; esac
     done
     [ "$done" = 1 ] && { echo "all terminal"; exit 0; }
     sleep 30
   done
   echo "TIMEOUT — some PRs still open"
   ```
+
+  **A waiter that knows only MERGED/CLOSED will sit out a conflict.** When a PR's base conflicts (`mergeable_state: dirty`), GitHub queues **no** CI run and auto-merge waits forever — nothing fails, so nothing emits. On Hosting agenda, #1873 sat armed ~1h with only the two Vercel checks present, because main had moved under it and `route-picks.generated.ts` conflicted; the waiter timed out rather than reporting it. Read `merged` from the REST API (a second waiter on the same PR missed its merge while polling `gh pr view --json state`, cause not established) and treat `dirty` as terminal. **A `TIMEOUT` is never neutral:** inspect `gh api .../pulls/<N> --jq .mergeable_state` and the check list before re-arming a waiter. A conflict confined to `*.generated.*` files is orchestrator-fixable (merge `origin/main`, regenerate, prove the result differs from `git merge-tree --write-tree` only in generated files, re-arm on the new head).
 - **On a green-but-open stall, resume the *owning* agent (`SendMessage`), don't merge it yourself bare.** The owning agent holds the review record; a message resumes it from its transcript and it completes review-confirmation + merge in one step. A bare `gh pr merge` from the orchestrator is correctly **blocked** when the PR has no documented review (see below) — and it should be. Reserve the orchestrator's own merge for when you have *first* produced the review record (e.g. via a dedicated review-then-merge agent), which is the right recovery when the owning agent is truly dead rather than merely idle.
 
 **Do not merge a PR on CI-green alone.** A green build is not a passed review. If a subagent's delivery stalled such that `/code-review` + `/security-review` never completed (common when the *delivery* sub-agent dies, e.g. during an infra outage), the PR has green CI and **no review record** — merging it there skips the one gate every other PR passed. The host may block the bare merge; that block is correct. Route it through an agent that runs the reviews scoped to `origin/main...<branch>` first, then merges.
