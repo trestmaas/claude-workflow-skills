@@ -235,6 +235,10 @@ If `/ship` pauses with `needs input:`, propagate that up — don't try to fix th
 
 **"Awaiting merge" is not an ending.** On the multi-calendar project, **5 of 7** `/start` agents returned with some variant of *"Monitor armed, waiting on CI"* / *"handed off to the delivery agent, awaiting its report"* — no `result:`, no `needs input:`, just a status update. Every one forced the orchestrator to re-derive the PR number, poll `gh` itself, and re-drive the ticket. The work was fine; the *ending* was the defect, and it cost a round-trip per ticket.
 
+**Exception: under `/project-start`, when your brief says "stop before arming", do NOT start a CI monitor.** Report as soon as the PR is open and CI has started, with `result: PR #<N> ready for independent review — CI <state>`. The orchestrator owns the only CI waiter (`project-start/wait-pr.sh`).
+
+On "Just add it", every author ran its own `gh pr checks` loop on the same PR the orchestrator was already watching. The duplicated polling hit a GitHub 403 secondary rate limit mid-run, and three retros now say "one waiter per resource". The rule below applies when no orchestrator is watching.
+
 If CI is still running, **keep waiting** — poll `gh pr view <N> --json state` until it leaves `OPEN`, then report. Blocking is correct behavior; a status-update return is not. If you genuinely cannot wait (auto-merge disabled by a human, CI red, delivery agent dead), that is a `needs input:` with the specific reason — not a shrug.
 
 If invoked by `/project-start`, also signal the parent with the ticket id and final state.

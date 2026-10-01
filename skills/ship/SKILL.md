@@ -28,6 +28,11 @@ gate:                                 # commands run in order; each must pass
 # Default: auto-detect bun/pnpm/yarn/npm from lockfile + package.json scripts and run
 # whichever of lint/typecheck/test/build exist.
 
+guards:                               # fast lane run before EVERY push, even when the full gate is skipped
+  - paths: ["src/components/**", "src/app/**", "messages/**"]   # run when the diff touches any of these
+    command: <package-manager> x vitest run src/lib             # the repo's convention/copy/guard tests
+# Default: none. Add one per CI-only guard family a pushed PR has tripped.
+
 delivery:
   agent: code-delivery-orchestrator   # subagent_type to spawn after PR creation
 # Default: skill inlines /code-review (two-axis) + /security-review then watches `gh pr checks` until green and merges.
@@ -84,6 +89,10 @@ The first two are the dangerous ones, because the output you read looks exactly 
 Safe forms: run it bare and read the tool's own reported exit; or `set -o pipefail` if you must pipe; or capture with `bun run verify:ci; rc=$?; …; exit $rc`. If you need to shorten the output, redirect to a file and grep the file — but take the exit code from the command, not from the grep.
 
 **Also count the gate's steps rather than trusting a remembered number.** Read the `gate:` chain out of `.claude/conventions.yaml` or `package.json` at run time and say how many you ran. In cover-image-cropper `verify:ci` grew from **9 steps to 12** over a single day as unrelated work landed; an agent trusting a number from its brief silently under-ran the gate and still reported it passed.
+
+**Run the `guards:` lane even when you skip or narrow the full gate.** Under `/project-start`, briefs often tell agents not to run the full `gate:` because several gates at once overload the machine. That leaves the repo's cheap convention guards to fail in CI instead. For each `guards:` entry whose `paths` match `git diff <base>...HEAD --name-only`, run its `command` and treat a failure exactly like a gate failure.
+
+Why this is a step and not a brief line: on "Just add it" (P-SIGN-98), the logical-Tailwind guard and the banned-label copy guard failed 2 PRs in CI, 3 rounds in all. Both run locally in about 2 minutes, and two earlier retros had already recommended "list the guards in the brief".
 
 **And distinguish a crashed runner from a failing test.** A summary reading "N fail" with **zero** per-test failure lines, alongside N× a runner-level error (`EEXIST: epoll_ctl`, `Cannot call describe() after the test run has completed`), is the test runner falling over — not your code. Report it and re-run; do not chase it. Likewise a bare `exit 133` (SIGTRAP) with no output can be the *reporter* crashing while serializing a failure value — a real assertion failure wearing a crash costume. Count matches (`queryAllByRole(...).length`) instead of handing a DOM node to `expect(node).toBeNull()`, which is what triggers it.
 

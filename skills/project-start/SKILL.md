@@ -61,6 +61,8 @@ needs input: N ticket(s) have unresolved acceptance criteria — resolve before 
   - <TICKET-ID>: <the open question>
 ```
 
+**Also refuse a ticket whose `decisions:` entry (see `/project-plan`, "Every folded decision names who sees something different") lacks `who_changes` or `they_lose`.** Run the same check on any folded decision you can see in an AC ("fresh signups get the same screen", "one X for every Y") that has no entry at all. List them in the same `needs input:` and let the human confirm each consequence before spawning. On "Just add it" both mid-run product pauses were folded decisions with an unnamed loser. Each one cost an agent pause, a reviewer and a human round trip after the code was written.
+
 **Phrase each open question as what the user will see, not in ticket vocabulary.** The question and every option describe the rendered artifact: the on-screen text, the behaviour. The ticket id goes only in the header or label. Evidence: Message catalog Phase 3 asked "SIGN-1650 wording?" with options naming Message Keys and got "I don't understand what this means"; re-asked as "the button that deletes your profile photo just says Remove — change it?", it was answered in one round.
 
 Evidence from the Public org events catalog run: SIGN-340 and SIGN-342 each paused mid-flight on an unresolvable criterion. SIGN-344 *also* carried an open question — but it was traced and resolved **before** spawning, and it shipped without pausing. Same class of ticket, two very different costs. Resolve first, spawn second.
@@ -195,6 +197,15 @@ Two defenses, used together:
   Evidence this is load-bearing, not belt-and-suspenders: on the Behavioral/Calendar runs the orchestrator monitor caught **every** merge, and caught the one PR that was genuinely stranded (#651 — all checks green, auto-merge never armed, would have sat open indefinitely). Without it nothing in the DAG would have moved.
 
   **But the `Monitor`-tool watch has itself been observed to go silent — treat it as best-effort, not the authoritative merge-detector.** On the Event-cover-images run, two persistent `Monitor`s over merged PRs never emitted, and the orchestrator idled **~7h between waves** until a human "stuck?" nudge; every merge had actually landed and been findable by a plain `gh pr view`. The reliable primitive is a **bounded `Bash run_in_background` until-loop that exits when all watched PRs are terminal** (one guaranteed completion notification), plus a `gh pr view` on each armed PR at every agent-completion checkpoint. Make the bounded waiter the primary merge-detector; the `Monitor` is at most a redundant tap.
+
+  **Use the shipped waiter, not a hand-rolled loop:** `REPO_DIR=<repo> ~/.claude/skills/project-start/wait-pr.sh <PR>`, with `run_in_background`, one per armed PR. It handles three things the loops below don't:
+  - it re-runs a runner-cancelled job ("The operation was canceled.") once its run completes;
+  - it skips aggregator gates that only mirror another job (`AGGREGATOR_RE`);
+  - it polls every 90s.
+
+  On "Just add it", the hand-rolled loop drifted to a 45s poll with an annotation fetch per check. Together with every author's own CI monitor, that hit a GitHub 403 secondary rate limit. It also misread the "CI gate failed" and "e2e concluded failure" aggregators as real failures 3 times.
+
+  Children briefed to stop before arming must not run their own CI monitor (see `/start`). Never edit the script while a copy is running: bash re-reads the file.
 
   ```bash
   # bounded waiter — one guaranteed notification when all PRs go terminal

@@ -86,6 +86,21 @@ Ask these one or two at a time, not all at once. After each answer, write the an
 
 When a decision under discussion says "X counts as proof / ownership / identity" — a cookie, a token, a header, a link — read X's *definition* in the code before recording the decision, not its name in the ticket prose. On Access Token the SIGN-1387 decision listed the Identity Cookie as a proof source because the ticket said so; the cookie carries a signed *email*, never a token, and is obtainable for any address by registering it. The code correctly refused it and the decision had to be amended after the fact. One `sed -n` on `signup-identity-cookie.ts` during grilling would have kept the decision and the code in agreement from the start. Grilling already looks facts up rather than asking; the definition of an artifact a decision hinges on is such a fact.
 
+## Every folded decision names who sees something different, and what they lose
+
+A plan often "folds" a decision into an AC: it settles a fork without asking, as a side effect of a simpler rule ("every unproven submit gets one end screen"). Record each one in `tickets.yaml` under the ticket it changes, in this shape:
+
+```yaml
+decisions:
+  - decision: "Every unproven web submit, fresh or add, lands on one end screen"
+    who_changes: "First-time anonymous guests (today: the confirmation page)"
+    they_lose: "Organizer invite (north-star CTA), calendar export, Edit; 24 e2e specs redirect elsewhere"
+```
+
+Enumerate `who_changes` from the populations the touched code serves today (fresh vs returning, signed-in vs anonymous, capped vs uncapped Events, owner vs stranger), not from the population the project is about. `they_lose` is concrete: what disappears from the screen, which response field changes, which test breaks. "Nothing" is a valid answer only after you've checked.
+
+`/project-start` refuses to spawn a ticket whose `decisions:` entry lacks either field. Why: on "Just add it" (P-SIGN-98), two folded decisions surfaced mid-run and each cost a human round trip. "One end screen for fresh and add" quietly took the confirmation page from every first-time guest. Reusing the owner's stored state in a capacity check, now reachable by strangers, leaked attending status and Guest Count. Both were answerable at plan time by asking "who else does this change?". This is the sixth retro to find decisions surfacing mid-run. The fields don't make the planner right; they force the question to be asked where it is cheapest.
+
 ## An acceptance criterion that asserts a fact about the code must carry the derivation, not the fact
 
 When an AC states a number, a file list, or "X is a Y", **write the command that produces it instead of the answer**. `grep -c "\.foo(" src/server/services/bar.ts → 0` is an AC; "the four sites in `bar.ts`" is a guess with a number in it.
