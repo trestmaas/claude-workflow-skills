@@ -134,6 +134,25 @@ None is catchable by a gate, and all six were caught by a human-facing review. S
 - **Re-run the derivation last**, after the final commit, before publishing.
 - **State what a proof does *not* cover.** "This RED run proves the call-shape change and the closed oracles; it does not demonstrate the refusal displacement — that is proven by X" is worth more than a longer list of what it does.
 
+## A design handoff's claims about the existing app are premises — check each before ticketing
+
+A high-fidelity handoff describes the new feature *and*, in passing, the app it lands in: "Going rows (existing)", "within a date, all-day items first", "2 spots left this week". A designer writes those from screenshots or memory, and the plan inherits them as facts. On Starred signups five such sentences were false, and each one became a mid-run product decision found by a reviewer, not the planner:
+
+- a pill described as existing that had never shipped;
+- an ordering rule that contradicted both the shipped order and the handoff's own screenshot;
+- a per-date count no query produced;
+- a layout that contradicted a CONTEXT.md definition;
+- a label the owner then rejected.
+
+So for any plan driven by a handoff, before writing tickets:
+
+1. List every sentence that asserts **existing** behaviour ("existing", "as today", "unchanged", a screenshot of a current screen).
+2. List every concrete **ordering, format, count or copy** rule.
+3. Check each against `origin/main` (grep the component, run the query) and against `CONTEXT.md`.
+4. Every contradiction or missing data source becomes a question to the owner, asked before tickets exist and phrased as what the user will see.
+
+Had the mid-run decisions been about behaviour the handoff never described, this step would add nothing. They weren't.
+
 ## Pin the vocabulary before writing tickets
 
 The interview will surface domain terms — some fuzzy, some overloaded (one word doing three jobs). Before writing acceptance criteria, run `/domain-modeling` to sharpen those terms and record them in `CONTEXT.md` (create it if absent). Then **write ticket titles and acceptance criteria in that pinned vocabulary**, and note in `project.md` that executing subagents should read `CONTEXT.md` for the glossary. Consistent language across tickets is what keeps N parallel agents from each naming the same concept differently — the vocabulary equivalent of the shared-plumbing rule below.
@@ -262,6 +281,20 @@ Before finalizing tickets, look at the scope and ask: **does any ticket create a
 - **Shared hooks / contexts** — the provider defines the API surface; consumer tickets extend it.
 
 When you spot this: the **shared file goes on every sibling's `files:` list**, not just the scaffolding ticket's. The auto-sequencer reads file overlap as "serialize these" — that's the correct behavior because two siblings can't safely edit the same file in parallel even with merge auto-rebase.
+
+### A foundation that later tickets call must carry their call shapes as ACs
+
+The plumbing rule above sequences tickets on a shared *file*. It does not say what the file must *offer*. When one ticket builds a hook, component or service that N later tickets consume, the builder sees only its own caller and ships the API that caller needs. The consumers then discover the gaps one review round at a time.
+
+On Starred signups, `useStarToggle` shipped for the signup page alone, and review had to add three things:
+
+- an `initialStarred` seed, so a 30-card catalog doesn't issue 30 queries;
+- write-through to the shared query cache;
+- an Undo that survives its row unmounting.
+
+Integration review then found a `staleTime: Infinity` seam: a Star made in another tab made a list row's button star instead of unstar.
+
+So: for every deliverable a later ticket consumes, write each consumer's call into the foundation ticket's ACs. Name the consumer ticket, what it passes, what it gets back, and what cache or state it relies on. For example: "SIGN-1786 renders 30 cards and passes `initialStarred` from one server read; no per-card fetch." Each line is a test the foundation must pass. Had the seams sat inside one ticket's own surface, this would not have caught them.
 
 ### Pre-declare shared utilities, not just plumbing
 
