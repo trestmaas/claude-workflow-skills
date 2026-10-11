@@ -134,6 +134,8 @@ If during implementation you discover a missing file from the declared surface (
 
 Commit code in logical chunks. Run `test.command` between commits — green before each commit.
 
+**Stage with explicit paths, never `git add -A` / `git add .`.** In auto mode the permission classifier denies a blanket add (it can sweep in files a mutation run or a generator left behind). The denial pauses the agent until a human or the orchestrator notices. On API/MCP write surface, that pause held SIGN-1438 for about 46 hours. Instead, run `git status --short`, then `git add <each path you meant to change>`.
+
 ### 6b. Composition guard
 
 If any acceptance criterion says a child component is **rendered inside / shown in / mounted in** a parent component (e.g. "`SidebarOrgSwitcher` renders inside `SettingsSidebar` between the Developer band and the footer"), grep the parent file for:

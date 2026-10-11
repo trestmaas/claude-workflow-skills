@@ -294,6 +294,12 @@ grep -rl 'getSignupsByToken(' src --include=*.test.*
 
 — and declare every hit. Had the drift been in source files this would not be the fix; it was the fixtures.
 
+**Generated companions are declared by rule, not remembered.** Some files change every time a given source file changes, because a check regenerates or compares them. Read `companions:` from `.claude/conventions.yaml`: a list of `{when: <glob>, also: [<paths>]}`. For every ticket whose `files:` matches a `when`, append the `also` paths. Don't reason about whether this particular ticket "really" needs them.
+
+On API/MCP write surface, 11 of the 12 PRs that changed `src/server/mcp/tool-definitions.ts` also changed `chatgpt-app-submission.json` (`mcp:check-server-json`), and none declared it. The same was true of the i18n message trio, `docs/api/CHANGELOG.md` and `scripts/mutation-registry.ts`. Drift has been reported on 10 of 10 retros. Every earlier fix was a grep the planner had to remember, and drift did not fall.
+
+Falsifiable: the next project's drift table shows zero undeclared companion files. If drift remains, it should be in genuinely unforeseeable source files.
+
 **A procedure that does not exist yet cannot be grepped — declare the mocks by their parent, not by the name.** The rule above greps the *old* spelling, which works for a field or a union member that already exists. It under-counts when the ticket *creates* the thing: on One Actor a new tRPC procedure (`events.publishDraft`) broke 21 component tests whose strict router mocks list every procedure they expect, and a deleted one (`listForActiveOrg`) orphaned 22 more. Neither name existed at plan time to grep for. So for any ticket that may **add or remove a tRPC procedure** (or any strictly-mocked module's export), declare the mock files by their parent instead:
 
 ```
