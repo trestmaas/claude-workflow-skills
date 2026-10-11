@@ -67,6 +67,10 @@ needs input: N ticket(s) have unresolved acceptance criteria — resolve before 
 
 Evidence from the Public org events catalog run: SIGN-340 and SIGN-342 each paused mid-flight on an unresolvable criterion. SIGN-344 *also* carried an open question — but it was traced and resolved **before** spawning, and it shipped without pausing. Same class of ticket, two very different costs. Resolve first, spawn second.
 
+### 1c. Find open PRs outside the project that touch its declared files
+
+`gh pr list --state open --limit 200 --json number,title,headRefName,files`, then keep every PR that touches a path in any ticket's `files:` and isn't one of this project's branches. If `project.md` doesn't already say adopt / supersede / ignore for a hit (see `/project-plan`), raise it before spawning the tickets it overlaps, as a question about what's in the PR, not about ticket ids. Unrelated tickets can spawn meanwhile. Record the answer as a scope correction at the top of the overlapping ticket. Evidence: P-SIGN-106's plan missed #2031, an open green PR that had done most of the Next 16 ticket. One question before spawning turned a from-scratch rebuild into a cherry-pick.
+
 ### 2. Build the DAG
 
 For each ticket:
@@ -255,7 +259,7 @@ This is not hypothetical. On the "Monetize the AI creation flow" project, the de
 The orchestrator *does* hold the Agent tool. So the orchestrator — not the subagent — spawns the independent reviewer, and gates the merge on it:
 
 1. When a `/start` subagent reports its PR is up with the gate green, do **not** let it arm auto-merge as the final step. Instruct subagents (in their spawn prompt) to push, open the PR, run the gate, set Linear In Review, and **stop without arming** — then report the PR number.
-2. Spawn a **fresh** `general-purpose` agent (NOT `run_in_background`-coupled to the author; a clean context that did not write the code) on the strongest model, whatever the author ran on, as a read-only reviewer: "you did not write this, find what its author missed." This gate is what makes cheaper authors safe, so don't downgrade it. Point it at the PR's actual risk surface and tell it to distinguish BLOCKING from "I'd have done it differently." Have it end with a single `VERDICT:` line.
+2. Spawn a **fresh** `general-purpose` agent (NOT `run_in_background`-coupled to the author; a clean context that did not write the code) on the strongest model, whatever the author ran on, as a read-only reviewer: "you did not write this, find what its author missed." This gate is what makes cheaper authors safe, so don't downgrade it. Point it at the PR's actual risk surface and tell it to distinguish BLOCKING from "I'd have done it differently." Have it end with a single `VERDICT:` line. **"Read-only" includes the CLIs it runs.** Name the forbidden forms in the brief: `vercel link`, `vercel curl --yes` (or any `--yes`/`--confirm`) in an unlinked directory, `gh pr comment`, `gh pr review`. Give it the safe form for the job, e.g. `vercel curl --deployment` run from the repo's linked root, or the Vercel MCP fetch. On P-SIGN-106 a reviewer's `vercel curl --yes` in `/tmp` silently created and linked an empty Vercel project in the team, and it had to be found and deleted. This is prompt text, so it will recur until a PreToolUse hook blocks those commands.
 
    **Brief the reviewer on the NEIGHBOURS, not just the diff.** This is the part that does the work, and it is the orchestrator's alone — only it knows what the other twelve tickets did. A reviewer confined to the diff re-checks what the author already checked; the defects that survive self-review live in the *seams*. Put in the brief:
 
