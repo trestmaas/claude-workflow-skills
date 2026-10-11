@@ -47,6 +47,8 @@ Surface a one-line resume summary before continuing:
 
 If every ticket is already Done, jump straight to `/project-retro` and mark the project Completed — there's nothing to spawn.
 
+**Also list the project's tickets that are not in `tickets.yaml`** (`list_issues` with the project, minus the bundle's ids). Step 7.2 refuses to complete the project while any of them is open, so a ticket left out of the bundle decides when the run ends. For each one, surface what it waits on in the same summary line. If the bundle excluded it as human-only (an operator's credentials, another repo), test that claim now: for example `gcloud auth list` or `gh auth status` shows whether the operator's identity is in this session. On Node 24 LTS, SIGN-1880 was excluded because it "needs Gabe's gcloud". `gcloud auth list` showed his account all along, so the project halted at closeout. It shipped only after a second human round trip, `Run 1880`.
+
 ### 1b. Refuse to spawn tickets carrying unresolved acceptance criteria
 
 Scan each eligible ticket's acceptance criteria — in `tickets.yaml` **and** on the Linear ticket — for unresolved-decision markers: `OPEN`, `TBD`, `needs a call`, `decide before build`, `do not guess`, `RESOLVE FIRST`.
@@ -134,7 +136,7 @@ while ready or running:
   - **A ruling that reaches more than one ticket is executed before it is broadcast**: render the ICU, run the lint, diff the output, and paste the result into the ruling. Broadcasting it first and letting the sweeps test it multiplies one wrong premise by N lifecycles.
 
   Following this still depends on the orchestrator, so expect it to partly recur until briefs are generated from commands rather than written.
-- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.**
+- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.** Sometimes the shared checkout rejects the orchestrator's writes; the background-session isolation guard does this when the orchestrator is not itself in a worktree. In that case write the log and the `prompts/` to `~/.claude/handoffs/<repo>/<slug>/` instead, which outlives the session. Say so in the first status line, and copy both files into the bundle's PR at closeout. Never route around the guard with shell redirection. A job's tmp dir is not durable either: it is deleted with the job. Both Next 16 and Node 24 kept their logs in such places.
   - `spawn <ticket> agent=<description> worktree=<path> branch=<branch> model=<m> prompt=.handoffs/<slug>/prompts/<ticket>.md`. Write the full prompt to that file before spawning.
   - `review <PR> <blocking|should-fix|clean> by=<reviewer>`.
   - `merge <PR> <sha>`, `paused <ticket> <reason>`, `killed <ticket> <cause>`.
