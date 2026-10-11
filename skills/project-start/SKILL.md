@@ -276,6 +276,14 @@ The orchestrator *does* hold the Agent tool. So the orchestrator — not the sub
    Corollary: when the reviewer's finding contradicts something you told the author, **say so plainly and carry the correction forward**. Twice on that run the orchestrator's own briefing was the wrong half — an assumed type-system guarantee that didn't exist, and a "functionally harmless" framing of a comment that was in fact taking the entire stylesheet down.
 3. **Verify the fix, don't trust the report.** If the reviewer finds a blocking defect, `SendMessage` the *owning* agent with the finding; when it reports fixed, read the diff yourself before arming.
 4. Only arm auto-merge (`gh pr merge <N> --auto --squash`) once the independent review is clean **or** its findings are fixed and verified. This deliberately serializes review before merge instead of merging-then-reviewing.
+5. **Refresh before merging when main gained a guard since the PR's CI ran.** A green PR proves its code against the base its CI ran on. Without "require branches up to date" (`strict: false`), it merges into a newer main unchecked. Just before arming:
+   - Run `git fetch origin`, then `git diff --name-only $(gh pr view <N> --json baseRefOid --jq .baseRefOid) origin/main`.
+   - If any file it lists matches `merge_refresh_paths` in `.claude/conventions.yaml`, run `gh pr update-branch <N>` and wait for CI on the new head.
+   - If `merge_refresh_paths` is unset, refresh whenever main moved at all.
+
+   On API/MCP write surface, #2081 was green and reviewed. SIGN-1846's constructable-mock guard landed on main 7h after #2081's CI ran. The merge then turned main red for 1h46m, until hotfix #2088 merged. That held up the next ticket and its CLI hand-off.
+
+   Tradeoff: the refresh costs one CI cycle, which is why it is gated on guard paths rather than run on every merge.
 
 Cost: one extra agent per ticket. Benefit, measured: three defects that would otherwise have shipped, one of them permanently unrecoverable. When `delivery.agent` is unspawnable this is the *only* independent check in the pipeline — treat it as mandatory, not belt-and-suspenders. If a run already merged PRs without this gate (e.g. because the DAG raced ahead), retro-review those merged PRs adversarially at closeout and file any findings as follow-up tickets — a merged defect is a ticket, not a lost cause.
 
