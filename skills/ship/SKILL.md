@@ -204,6 +204,8 @@ Preconditions, all of which must hold before you run the command:
 - Both reviews produced real output (6b) and provably targeted **this PR's diff** (6c).
 - Every high-confidence finding is either fixed on the branch or explicitly accepted, in writing, in your report.
 - If you pushed fixes in response to a finding, CI is green **on the fixed commit** — not on the commit the review read.
+- **No file in the PR matches `merge.human_paths`** in `.claude/conventions.yaml` (`gh pr diff <N> --name-only`). If one does, do not arm: report "PR #<N> touches <path>, which this repo merges by hand (merge.human_paths)" with the review results, and stop there. The PR is done from `/ship`'s side; 6a's merge wait does not apply. That list is the repo's merge policy for every path that merges, its own unattended reviewer included.
+- **If `merge.require_up_to_date` is true** (branch protection in strict mode), the branch must contain main's tip (`git merge-base --is-ancestor origin/main <head>`). If it does not, `gh pr update-branch <N>` and wait for CI on the new head first. An armed auto-merge on a behind branch waits forever and nothing says so.
 
 Then:
 

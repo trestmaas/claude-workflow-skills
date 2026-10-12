@@ -286,13 +286,15 @@ The orchestrator *does* hold the Agent tool. So the orchestrator — not the sub
      - (a) a listed file matches `merge_refresh_paths` in `.claude/conventions.yaml`, or
      - (b) a listed file is also in the PR's own `git diff --name-only $B <PR head>`.
    - If `merge_refresh_paths` is unset, refresh whenever main moved at all.
+   - If `merge.require_up_to_date` is true in `.claude/conventions.yaml`, the repo runs branch protection in strict mode: refresh whenever the branch is behind main, whatever (a) and (b) say. GitHub refuses the merge otherwise, and an armed auto-merge on a behind branch waits forever without saying so. Refresh one armed PR at a time, oldest first: each merge puts every other open PR behind again, so refreshing them all spends a CI run on each for one merge.
    - Loop until the head contains main's tip (`git merge-base --is-ancestor origin/main <head>`), then merge with `--match-head-commit`.
 
    Both conditions caught a real break on API/MCP write surface:
    - **(a), a guard landed:** SIGN-1846's constructable-mock guard landed on main 7h after #2081's CI ran. Merging #2081 turned main red for 1h46m, until hotfix #2088.
    - **(b), both PRs edited the same file:** #2019 (SIGN-1678) edited `surface-ledger.yaml` 13 minutes before #2090, which edited it too and pinned the old count. That merge turned main red again, fixed by #2097. No guard path was involved, so (a) alone would have let it through.
 
-   Measured over that project's 17 merges, (a) or (b) fires on 6. Each costs one CI cycle, which was 8–42 min (median about 16). Refreshing on every merge instead is what branch protection's strict mode does; that is the repo owner's call.
+   Measured over that project's 17 merges, (a) or (b) fires on 6. Each costs one CI cycle, which was 8–42 min (median about 16). Refreshing on every merge instead is what branch protection's strict mode does; that is the repo owner's call, recorded as `merge.require_up_to_date`.
+6. **Hold human-merge paths for a person.** If `.claude/conventions.yaml` sets `merge.human_paths`, list the PR's files (`gh pr diff <N> --name-only`) before step 4. If any matches one of those globs, do not arm or merge it, however clean the review. Pause the ticket with `needs input:` naming the PR and the matching path: "PR #<N> touches <path>, which this repo merges by hand (merge.human_paths). Review and merge it, then I'll continue." Dependents wait on it like any other unmerged ticket. The list is the repo's whole merge policy, shared with its own unattended reviewer, so a project run and the repo's other merge paths hold the same PRs for the same person.
 
 Cost: one extra agent per ticket. Benefit, measured: three defects that would otherwise have shipped, one of them permanently unrecoverable. When `delivery.agent` is unspawnable this is the *only* independent check in the pipeline — treat it as mandatory, not belt-and-suspenders. If a run already merged PRs without this gate (e.g. because the DAG raced ahead), retro-review those merged PRs adversarially at closeout and file any findings as follow-up tickets — a merged defect is a ticket, not a lost cause.
 
