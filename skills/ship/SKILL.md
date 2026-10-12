@@ -207,11 +207,13 @@ Preconditions, all of which must hold before you run the command:
 - **No file in the PR matches `merge.human_paths`** in `.claude/conventions.yaml` (`gh pr diff <N> --name-only`). If one does, do not arm: report "PR #<N> touches <path>, which this repo merges by hand (merge.human_paths)" with the review results, and stop there. The PR is done from `/ship`'s side; 6a's merge wait does not apply. That list is the repo's merge policy for every path that merges, its own unattended reviewer included.
 - **If `merge.require_up_to_date` is true** (branch protection in strict mode), the branch must contain main's tip (`git merge-base --is-ancestor origin/main <head>`). If it does not, `gh pr update-branch <N>` and wait for CI on the new head first. An armed auto-merge on a behind branch waits forever and nothing says so.
 
-Then:
+Then arm through the shared script, which re-checks `merge.human_paths` against the default branch's conventions at arm time and pins the head SHA (exit 3 means held for a person; stop there):
 
 ```bash
-gh pr merge <N> --auto --squash
+REPO_DIR=<repo> ~/.claude/skills/project-start/arm-pr.sh <N> <head-sha>
 ```
+
+If the script isn't installed (older copies), fall back to `gh pr merge <N> --auto --squash --match-head-commit <head-sha>` after doing the human_paths check above by hand.
 
 Retry once with 2s backoff on the transient `enablePullRequestAutoMerge` GraphQL error (observed across multiple projects; succeeds on immediate retry). If the second attempt also fails, surface the error but continue — the orchestrator queues auto-merge defensively when it sees an open PR, and 6a below will still block until the merge is confirmed.
 
