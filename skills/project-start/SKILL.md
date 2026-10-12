@@ -28,6 +28,7 @@ The project slug, name, or Linear project id. Resolve to a slug via `mcp__claude
 - Read `.handoffs/<slug>/tickets.yaml`.
 - Validate every ticket has an id (filled in during `/project-plan`). If any are missing, pause `needs input: ticket(s) without Linear id — was /project-plan completed?`.
 - Read the `concurrency` field. Default `3`.
+- **Refuse to run on a stale copy of these skills.** For each workflow skill this run will invoke (`project-start`, `start`, `ship`, `project-retro`), compare the copy that is actually loaded against the skills repo's `origin/main`: `git -C <skills repo> fetch -q && git -C <skills repo> diff --quiet origin/main -- skills/<name>/ <loaded copy dir>` (or `diff -rq`). If any differs, pause `needs input: <name> skill is behind the skills repo (<n> commits) — sync it before running`. Why: Starred signups ran on copies that predated a merged retro PR (#18), so its CI waiter and its decision rule were absent, and both problems recurred as if never fixed. A retro mechanism that never reaches the running copy is a wish.
 - **Assert the shared checkout is at `origin/main` before the first spawn.** `git -C <shared checkout> rev-list --count HEAD..origin/main`; if non-zero and the checkout is on `main` with no local changes, `git pull --ff-only origin main` there. Why: `core.hooksPath` (and anything else resolved by absolute path) points at the *shared* checkout, so every child worktree runs the shared checkout's copy of `pre-push`, not its own branch's. On i18n-readiness the shared checkout was 42 commits behind and still carried the old full-gate hook; every agent paid a ~10-minute `verify:ci` under load 100–230 for two hours after the repo had already switched the hook to deps-check-only. One command at DAG-build time. If the checkout is on another branch or dirty, don't touch it — surface it and tell the children the hook they will get.
 
 ### 1a. Reconcile with Linear (resume support)
@@ -46,6 +47,8 @@ Surface a one-line resume summary before continuing:
 ```
 
 If every ticket is already Done, jump straight to `/project-retro` and mark the project Completed — there's nothing to spawn.
+
+**Also list the project's tickets that are not in `tickets.yaml`** (`list_issues` with the project, minus the bundle's ids). Step 7.2 refuses to complete the project while any of them is open, so a ticket left out of the bundle decides when the run ends. For each one, surface what it waits on in the same summary line. If the bundle excluded it as human-only (an operator's credentials, another repo), test that claim now: for example `gcloud auth list` or `gh auth status` shows whether the operator's identity is in this session. On Node 24 LTS, SIGN-1880 was excluded because it "needs Gabe's gcloud". `gcloud auth list` showed his account all along, so the project halted at closeout. It shipped only after a second human round trip, `Run 1880`.
 
 ### 1b. Refuse to spawn tickets carrying unresolved acceptance criteria
 
@@ -140,7 +143,7 @@ while ready or running:
   - **A ruling that reaches more than one ticket is executed before it is broadcast**: render the ICU, run the lint, diff the output, and paste the result into the ruling. Broadcasting it first and letting the sweeps test it multiplies one wrong premise by N lifecycles.
 
   Following this still depends on the orchestrator, so expect it to partly recur until briefs are generated from commands rather than written.
-- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.** When the orchestrator runs as a background job, the shared checkout rejects its writes, so the log goes to the job's own directory, which is deleted with the job. In that case, paste the log into the retro doc as an appendix before closeout; otherwise it's lost with the job.
+- **Keep `.handoffs/<slug>/runtime.log`: append one line per event and never rewrite it.** Sometimes the shared checkout rejects the orchestrator's writes; the background-session isolation guard does this when the orchestrator is not itself in a worktree. In that case write the log and the `prompts/` to `~/.claude/handoffs/<repo>/<slug>/` instead, which outlives the session. Say so in the first status line, and copy both files into the bundle's PR at closeout. Never route around the guard with shell redirection. A job's tmp dir is not durable either: it is deleted with the job. Both Next 16 and Node 24 kept their logs in such places.
   - `spawn <ticket> agent=<description> worktree=<path> branch=<branch> model=<m> prompt=.handoffs/<slug>/prompts/<ticket>.md`. Write the full prompt to that file before spawning.
   - `review <PR> <blocking|should-fix|clean> by=<reviewer>`.
   - `merge <PR> <sha>`, `paused <ticket> <reason>`, `killed <ticket> <cause>`.

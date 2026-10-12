@@ -181,6 +181,8 @@ Out of scope — surface as a recommendation and stop:
 
 **How to land a skill edit:** branch, commit, open a **draft PR** against the skills repo — never push to `main`. One PR per retro, titled for the project. Put the retro's own reasoning in the PR body so the change is reviewable without re-reading the retro.
 
+**A merged skills PR is not landed until the running copies match it.** Every place the skills are loaded from must be synced after merge: the user-level `~/.claude/skills/<name>/` copies and any product repo's vendored `.claude/skills/` or `.agents/skills/`. List those places in the retro's `## Applied` section with a `needs input:` to sync them on merge. Before writing recommendations, check the previous retro's `## Applied` PRs against the running copies (`diff -rq`), and report any that never arrived as a finding of their own. Starred signups re-derived two of #18's fixes because neither copy it ran from had been synced.
+
 Then add a section to the retro doc:
 
 ```markdown
