@@ -40,6 +40,12 @@ Concretely, at plan start:
 
 `/project-plan` is often run while *other* planned projects are executing in parallel. Enumerate them — `ls .handoffs/*/tickets.yaml` — and skim each for overlap with your scope **before** writing tickets. On participant-flow-repair, one ticket (a plus-one data model) turned out to duplicate the entire first half of a separate `p4-rsvp-first-class` project whose foundational ticket had merged two hours earlier; two projects building the same primitive is the worst outcome. Flag overlapping scope, **shared files** (two projects editing one file race at merge), and **migration-number collisions** (both projects claiming `0060_*.sql`) in the project description, and re-scope or cancel the overlap at plan time.
 
+## Cross-check open PRs and tickets outside any bundle that already do this work
+
+Bundles are not the only in-flight work. Before writing tickets, list **open PRs that touch any file you are about to declare**: `gh pr list --state open --limit 200 --json number,title,files --jq '.[]|select(any(.files[].path; test("<declared-path-regex>")))|"\(.number) \(.title)"'`. Also search open Linear tickets for the project's key nouns. For every hit, record in `project.md` and on the Linear project page what happens to it: **adopt** (a ticket builds on its commits), **supersede** (close it when the project merges), or **ignore** (and why). Put the hit's PR number and its fallout files in the adopting ticket's `files:` too.
+
+Evidence from Next.js 16 + React 19.3 (P-SIGN-106): an open PR, #2031, had already done most of the Next ticket against main five days earlier, with all checks green, and the plan didn't mention it. `/project-start` found it by chance (`gh pr list --search "Next 16"`) and paused for a human decision before spawning. Reusing it was right, but the ticket's declared surface then missed 9 files #2031 had already shown it needed (`tsconfig.json`, `eslint.config.mjs`, three tests and the scripts they cover).
+
 ## Probe the codebase before declaring file surfaces
 
 Before any tickets are written, **probe the repo for its actual conventions** — declared paths that don't match reality cause silent drift at execution time. The probe is cheap; do it once at plan start and refer to it while filling `files:` for each ticket.
@@ -86,6 +92,21 @@ Ask these one or two at a time, not all at once. After each answer, write the an
 
 When a decision under discussion says "X counts as proof / ownership / identity" — a cookie, a token, a header, a link — read X's *definition* in the code before recording the decision, not its name in the ticket prose. On Access Token the SIGN-1387 decision listed the Identity Cookie as a proof source because the ticket said so; the cookie carries a signed *email*, never a token, and is obtainable for any address by registering it. The code correctly refused it and the decision had to be amended after the fact. One `sed -n` on `signup-identity-cookie.ts` during grilling would have kept the decision and the code in agreement from the start. Grilling already looks facts up rather than asking; the definition of an artifact a decision hinges on is such a fact.
 
+## Every folded decision names who sees something different, and what they lose
+
+A plan often "folds" a decision into an AC: it settles a fork without asking, as a side effect of a simpler rule ("every unproven submit gets one end screen"). Record each one in `tickets.yaml` under the ticket it changes, in this shape:
+
+```yaml
+decisions:
+  - decision: "Every unproven web submit, fresh or add, lands on one end screen"
+    who_changes: "First-time anonymous guests (today: the confirmation page)"
+    they_lose: "Organizer invite (north-star CTA), calendar export, Edit; 24 e2e specs redirect elsewhere"
+```
+
+Enumerate `who_changes` from the populations the touched code serves today (fresh vs returning, signed-in vs anonymous, capped vs uncapped Events, owner vs stranger), not from the population the project is about. `they_lose` is concrete: what disappears from the screen, which response field changes, which test breaks. "Nothing" is a valid answer only after you've checked.
+
+`/project-start` refuses to spawn a ticket whose `decisions:` entry lacks either field. Why: on "Just add it" (P-SIGN-98), two folded decisions surfaced mid-run and each cost a human round trip. "One end screen for fresh and add" quietly took the confirmation page from every first-time guest. Reusing the owner's stored state in a capacity check, now reachable by strangers, leaked attending status and Guest Count. Both were answerable at plan time by asking "who else does this change?". This is the sixth retro to find decisions surfacing mid-run. The fields don't make the planner right; they force the question to be asked where it is cheapest.
+
 ## An acceptance criterion that asserts a fact about the code must carry the derivation, not the fact
 
 When an AC states a number, a file list, or "X is a Y", **write the command that produces it instead of the answer**. `grep -c "\.foo(" src/server/services/bar.ts → 0` is an AC; "the four sites in `bar.ts`" is a guess with a number in it.
@@ -105,6 +126,14 @@ Two corollaries worth stating in the ticket itself:
 
 - **If an operation takes no event id, say authorization follows the row** and name the path that must refuse, rather than claiming blanket containment.
 - **A count is a ceiling only if you re-derived it at plan time against `origin/main`** — and the AC should tell the agent to re-derive it anyway.
+- **This applies to every sentence in the ticket, not only its AC lines.** A "Prove it" step or a project-page note that says what a file does ("the auth guard in proxy must still redirect") is an assertion too. Quote the line that does it, or don't say it. On P-SIGN-106 that sentence was false, because the proxy sets a toolbar cookie and rejects malformed multipart, while page guards do auth. The orchestrator then copied it into the reviewer's brief, and the reviewer had to correct both. This is roughly the tenth retro to raise derive-don't-assert, and the first time the wrong claim sat outside an AC.
+- **An enumerated scope is a floor, not a list.** Any AC of the form "all N of X" / "the four modules" / "the five tables" carries the discovery command that enumerates X, beside the list, so `/start` can re-run it. Evidence: Message catalog Phase 3's "five tables" was eight (two found by grep at contract time, the eighth, `weekStart.ts`'s initials, only by independent review); "66 importers" was 15 non-test; a module's importer list missed one.
+
+## A claim about what production runs comes from a built artifact, not from `package.json`
+
+Before a dependency-upgrade plan gives a package its own ticket, or claims that a ticket changes production behaviour, **find which copy production actually executes**. Frameworks vendor and alias dependencies. `package.json` and the lockfile say what the tests and types use, not what the bundle ships. Derive it from the build: `grep -o 'version="[^"]*"' .next/static/chunks/*.js | sort -u` (or the equivalent for the bundler), and put that command and its output in the plan. If production's copy moves only with another package, the "standalone" ticket is a test/types ticket. Say so in its title, and move the production-behaviour verification to the ticket that actually moves it.
+
+Evidence from P-SIGN-106: the plan made "React 19.1 → 19.3" ticket 1 "so a Next failure isn't confused with a React one". But Next 15's App Router aliases `react` to `next/dist/compiled/react*`. The merged pin changed the vitest/bun lanes, the types and the `pages/*` fallback; production stayed on `19.2.0-canary-0bdb9206` until the Next ticket moved it to `19.3.0-canary-278794d7`. The independent reviewer found this by reading a preview client chunk. The separation the plan was designed to give never existed in production.
 
 ## Every number a plan or a PR publishes is re-derived against the state being published
 
@@ -283,6 +312,12 @@ grep -rl 'getSignupsByToken(' src --include=*.test.*
 ```
 
 — and declare every hit. Had the drift been in source files this would not be the fix; it was the fixtures.
+
+**Generated companions are declared by rule, not remembered.** Some files change every time a given source file changes, because a check regenerates or compares them. Read `companions:` from `.claude/conventions.yaml`: a list of `{when: <glob>, also: [<paths>]}`. For every ticket whose `files:` matches a `when`, append the `also` paths. Don't reason about whether this particular ticket "really" needs them.
+
+On API/MCP write surface, 11 of the 12 PRs that changed `src/server/mcp/tool-definitions.ts` also changed `chatgpt-app-submission.json` (`mcp:check-server-json`), and none declared it. The same was true of the i18n message trio, `docs/api/CHANGELOG.md` and `scripts/mutation-registry.ts`. Drift has been reported on 10 of 10 retros. Every earlier fix was a grep the planner had to remember, and drift did not fall.
+
+Falsifiable: the next project's drift table shows zero undeclared companion files. If drift remains, it should be in genuinely unforeseeable source files.
 
 **A procedure that does not exist yet cannot be grepped — declare the mocks by their parent, not by the name.** The rule above greps the *old* spelling, which works for a field or a union member that already exists. It under-counts when the ticket *creates* the thing: on One Actor a new tRPC procedure (`events.publishDraft`) broke 21 component tests whose strict router mocks list every procedure they expect, and a deleted one (`listForActiveOrg`) orphaned 22 more. Neither name existed at plan time to grep for. So for any ticket that may **add or remove a tRPC procedure** (or any strictly-mocked module's export), declare the mock files by their parent instead:
 
@@ -542,6 +577,7 @@ The `external_depends_on` field is for foreign *tickets*, not for these — a ma
 - If the user gives a tight one-liner upfront ("scaffold a follow-up to <Project> covering the deferred polish") you can skip directly to confirming and proceed.
 - If the user pushes back on a scope item ("nah, drop #3"), update the plan and proceed — don't relitigate.
 - Push back when you see a vague acceptance criterion. "Make it better" or "polish the UI" are not testable — ask for a concrete check.
+- **Ask a decision as the rendered artifact, not in ticket vocabulary.** The question and its options say what the user will see or experience (the on-screen text, the behaviour); a ticket id goes only in the header. Evidence: Message catalog Phase 3's "SIGN-1650 wording?" got "I don't understand what this means"; "the button that deletes your profile photo just says Remove — change it?" was answered in one round.
 
 ## What this skill does NOT do
 

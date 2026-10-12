@@ -46,6 +46,7 @@ The ticket id (e.g. `THE-219`). Can be passed as argument or asked for if missin
 - If the ticket is part of a planned project (look for `.handoffs/<project-slug>/tickets.yaml` containing this id), read the yaml entry too — it's the authoritative contract.
 - Cross-check: do Linear and yaml agree on file surface and acceptance? If they diverge, **pause** `needs input: ticket and handoff yaml disagree on <field>`.
 - **Backend-dependency check.** Scan acceptance criteria for endpoint-shaped strings: tRPC procedure names (`viewer.foo.bar`, `organizations.delete`), REST routes (`/api/...`), or service-method calls. For each, grep main for the definition. If any are missing, **pause** `needs input: acceptance implies <endpoint> but it does not exist on main` — listing every missing one. Do NOT stub a "coming soon" toast, do NOT invisibly extend an unrelated router to add the surface yourself. The point of the pause is to let the user rescope the ticket or land the backend in a different ticket first. Project #5's THE-277/THE-279 silently shipped UI pointing at non-existent endpoints because no one checked.
+- **Re-run every enumeration.** An AC that lists "all N of X" / "the five tables" is a floor. Re-run the discovery command the ticket carries (derive one if it carries none, before trusting the count) and report what the list missed. Evidence: Message catalog Phase 3's "five tables" was eight, and "66 importers" was 15 non-test.
 - **Read-path check.** The mirror of the one above. For any criterion of the shape *"the organizer/participant reads/sees X on surface Y"*, trace the **production** path from the surface back to the row — the button or page, the procedure it actually calls, the projection that procedure returns — and confirm X is on it. Do not stop at the helper the ticket names. On participant-questions, SIGN-1303's ticket named `participantsCsv.ts` and the roster read that feeds it; the Export buttons call a *different* procedure (`signups.export`) that had never projected an answer, so the `Answer` column had been empty in production for a month and the new columns would have been too. SIGN-1302 found the same shape one layer up: the manage page renders from a tree payload that carried no answers at all. Both were caught only because the agent happened to trace it. If the production path lacks X, that is scope: widen the ticket and say so in the PR, or `needs input:` if the widening is large. Had the tickets named the procedure instead of the helper, the planner would have caught both.
 
 ### 2. Enter an isolated worktree
@@ -109,6 +110,8 @@ The generalisation: **any input whose value coincides with the code's own defaul
 
 The cheap check is a mutation: change the constant, break the branch, delete the read. If nothing goes red, the fixture chose your answer for you.
 
+**Then pin the runner's environment.** A test whose protection depends on TZ, locale, the clock or an env var must set it in-process (a helper like `inZone`, a fake clock), not inherit it from the machine. Prove it: mutate the guarded code, run under CI's environment (e.g. `TZ=UTC <test.command> <file>`), and watch it go red. Evidence: SIGN-1659's timezone test protected only on a developer laptop; in CI's UTC neither mutant was caught until `inZone` pinned the zones.
+
 Commit: `tests: failing tests for <TICKET-ID>`.
 
 **Then push the branch, now, before implementing.** `git push -u origin <branch>` (with `--no-verify` only where the repo's conventions say the local pre-push gate is skipped, as thesignup's do). A red-tests branch on the remote costs nothing and is the only thing that survives your process dying: on participant-questions two consecutive SIGN-1303 agents were killed by an API rate limit before their first push, and the third started from zero. Had either pushed here, the respawn would have fetched the branch and continued from green-tests-pending. Had the deaths come after a push, this line would change nothing — which is the point.
@@ -130,6 +133,8 @@ If during implementation you discover a missing file from the declared surface (
 **Comment hygiene.** Source comments are for non-obvious WHY (hidden constraint, subtle invariant, workaround for a specific bug) — not for narrating tradeoffs, decisions, or PR context. That belongs in the PR description. Do NOT add file-header block comments explaining "I chose X over Y because Z" or "this ticket implements...". If a future reader of just this file wouldn't be confused by the absence of the comment, don't write it. Project #5 had three sections (THE-280, THE-283, THE-284) land tradeoff narration in source files; the cleanup belongs in the PR body.
 
 Commit code in logical chunks. Run `test.command` between commits — green before each commit.
+
+**Stage with explicit paths, never `git add -A` / `git add .`.** In auto mode the permission classifier denies a blanket add (it can sweep in files a mutation run or a generator left behind). The denial pauses the agent until a human or the orchestrator notices. On API/MCP write surface, that pause held SIGN-1438 for about 46 hours. Instead, run `git status --short`, then `git add <each path you meant to change>`.
 
 ### 6b. Composition guard
 
@@ -231,6 +236,10 @@ If `/ship` pauses with `needs input:`, propagate that up — don't try to fix th
 2. `needs input: <what is blocking>` — anything else.
 
 **"Awaiting merge" is not an ending.** On the multi-calendar project, **5 of 7** `/start` agents returned with some variant of *"Monitor armed, waiting on CI"* / *"handed off to the delivery agent, awaiting its report"* — no `result:`, no `needs input:`, just a status update. Every one forced the orchestrator to re-derive the PR number, poll `gh` itself, and re-drive the ticket. The work was fine; the *ending* was the defect, and it cost a round-trip per ticket.
+
+**Exception: under `/project-start`, when your brief says "stop before arming", do NOT start a CI monitor.** Report as soon as the PR is open and CI has started, with `result: PR #<N> ready for independent review — CI <state>`. The orchestrator owns the only CI waiter (`project-start/wait-pr.sh`).
+
+On "Just add it", every author ran its own `gh pr checks` loop on the same PR the orchestrator was already watching. The duplicated polling hit a GitHub 403 secondary rate limit mid-run, and three retros now say "one waiter per resource". The rule below applies when no orchestrator is watching.
 
 If CI is still running, **keep waiting** — poll `gh pr view <N> --json state` until it leaves `OPEN`, then report. Blocking is correct behavior; a status-update return is not. If you genuinely cannot wait (auto-merge disabled by a human, CI red, delivery agent dead), that is a `needs input:` with the specific reason — not a shrug.
 
