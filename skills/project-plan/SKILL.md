@@ -166,6 +166,22 @@ So for any plan driven by a handoff, before writing tickets:
 
 Had the mid-run decisions been about behaviour the handoff never described, this step would add nothing. They weren't.
 
+## A behaviour change on a method an API reaches is an API contract change — find the doors before ticketing
+
+An acceptance criterion like "`extendDeadline` refuses a cancelled event" or "manual send refuses a cancelled signup" reads as dashboard behaviour. But the same service method is usually reached by REST and MCP too, and their published descriptions promise the old behaviour. On P-SIGN-99 (Cancelled signups) this happened twice:
+
+- **SIGN-1744's AC made `extendDeadline` refuse cancelled events.** That method backs MCP `reopen_signup` and REST `POST /signups/{id}/reopen`, whose docs explicitly said they revive a cancelled signup. The AC contradicted the project's own decision 1 ("REST/MCP contracts unchanged"). The orchestrator caught it only when it re-read the ticket at release.
+- **SIGN-1742's AC added a refusal to the manual reminder send** without saying that REST and MCP would now return 400. Independent review caught the undocumented contract change (should-fix, one docs round).
+
+So, for every AC that changes what an existing service method returns, refuses or emits:
+
+1. Enumerate every door that reaches it: the repo's surface ledger if it has one (thesignup: `docs/api/surface-ledger.yaml`), otherwise `git grep -n "<method>(" -- <route and tool dirs>`.
+2. For each public door, read its published description (OpenAPI route, MCP tool description).
+3. If the change contradicts that description, make it a folded decision with `who_changes`/`they_lose` (an agent loses the ability to do X). Ask it before ticketing.
+4. If the change is intended, add an AC that updates each door's description and documented error responses.
+
+Had both changes been confined to dashboard-only procedures, this step would have found nothing. They weren't.
+
 ## Pin the vocabulary before writing tickets
 
 The interview will surface domain terms — some fuzzy, some overloaded (one word doing three jobs). Before writing acceptance criteria, run `/domain-modeling` to sharpen those terms and record them in `CONTEXT.md` (create it if absent). Then **write ticket titles and acceptance criteria in that pinned vocabulary**, and note in `project.md` that executing subagents should read `CONTEXT.md` for the glossary. Consistent language across tickets is what keeps N parallel agents from each naming the same concept differently — the vocabulary equivalent of the shared-plumbing rule below.
