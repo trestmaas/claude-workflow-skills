@@ -406,6 +406,16 @@ Final line on full success: `result: shipped <project-name> — N tickets merged
 
 On partial: `result: partial — N merged, M paused/failed (see paused list above)`.
 
+## Running under a crew harness (`delegate` instead of `Agent`)
+
+Some hosts (aq crews) spawn children with a `delegate` tool, not `Agent`: `role: build|review|test`, `isolation: "worktree"|"shared"`, `mode: async`, and a typed report when the child finishes. Everything above still holds. Map `Agent(isolation: "worktree")` to `delegate(role: "build", isolation: "worktree")`, and the independent reviewer to `delegate(role: "review", isolation: "shared")`. These failure modes are specific to that harness; each cost P-SIGN-99 (Cancelled signups) hours.
+
+- **Approval cards expire with the orchestrator's turn.** Before a child starts, the person approves its usage on a card in the thread. A card left unanswered when the turn ends expires (`status: expired`), and a delegation sent as the turn ends never starts (`"The delegating turn ended before the crew could start"`). On P-SIGN-99 three cards were missed and one finisher silently never ran. On the first spawn of a run, ask the person to choose **"Always allow in this thread"**. After any spawn, check `delegation_status` returned `running`, never `queued`/`failed`, before saying the child is working.
+- **A child that ends "without calling report" is the green-but-open stall in another form, and it can still open a PR afterwards.** The P-SIGN-99 SIGN-1744 builder ended "waiting on its shards". A background job then woke it and it opened PR #2174, which sat green and unwatched for **31h** until the person asked. On every report-less ending, run `REPO_DIR=<repo> ~/.claude/skills/project-start/wait-branch-pr.sh <branch>` with `run_in_background` (it exits when a PR opens or the branch head moves) *before* spawning a finisher. The finisher's first action is to check whether that PR already exists.
+- **A review child that ends in seconds with no commands is a dud** (P-SIGN-99: 13s, `childStatus: waiting_for_user`). Respawn it with a first line that forces a shell command. Don't wait on it.
+- **Children branch from the base branch, not from the orchestrator's HEAD,** whenever the harness can't push the orchestrator's branch (`note: "...branches from main instead of its HEAD"`). Every brief must still say `git fetch origin && git switch -c <branch> origin/main`, and a fix round must say `git switch -C <branch> origin/<branch>`.
+- **The harness may mark a review not independent** (`independent: false`, same vendor as the author). Tell the person once; the remedy (a second vendor, or credits for reviews) is theirs. The neighbour-scoped brief still applies.
+
 ## Concurrency caveats
 
 - Default 3 keeps merge-conflict surface low. Override via `concurrency:` in tickets.yaml when planning known parallel-friendly work; lower it for conflict-prone work (e.g., a refactor touching shared infra).
